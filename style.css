@@ -1,0 +1,129 @@
+body {
+  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 0 20px;
+  line-height: 1.6;
+  color: #222;
+}
+
+h1 {
+  font-size: 1.8em;
+  margin-bottom: 4px;
+}
+
+h2 {
+  margin-top: 48px;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 6px;
+}
+
+h3 {
+  margin-top: 24px;
+  font-size: 1.05em;
+}
+
+a {
+  color: #1a5fb4;
+}
+
+p {
+  color: #333;
+}
+
+.subtitle {
+  color: #666;
+  margin-top: 0;
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.pair img {
+  width: 100%;
+}
+
+figure {
+  margin: 0;
+}
+
+figcaption {
+  font-size: 0.9em;
+  color: #666;
+  margin-top: 6px;
+  text-align: center;
+}
+
+.placeholder {
+  background: #f2f2f2;
+  border: 1px dashed #bbb;
+  height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #888;
+  font-size: 0.85em;
+  padding: 10px;
+}
+
+.filmstrip {
+  display: flex;
+  overflow-x: auto;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.filmstrip img {
+  width: 120px;
+  height: auto;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.gif-box {
+  margin: 20px 0;
+}
+
+.gif-box img {
+  width: 100%;
+}
+
+.project-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 16px;
+}
+
+.project-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.project-list a {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.project-list a:hover {
+  text-decoration: underline;
+}
+
+footer {
+  margin-top: 60px;
+  padding-top: 16px;
+  border-top: 1px solid #ddd;
+  color: #888;
+  font-size: 0.85em;
+}
+
+@media (max-width: 600px) {
+  .pair,
+  .filmstrip {
+    grid-template-columns: 1fr;
+  }
+}
