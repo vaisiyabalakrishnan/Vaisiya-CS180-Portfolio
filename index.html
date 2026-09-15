@@ -4,21 +4,41 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CS180 — Balakrishnan Vaisiya</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<h1>Balakrishnan Vaisiya</h1>
-<p class="subtitle">CS180: Introduction to Computer Vision and Computational Photography &mdash; Fall 2026</p>
+<div class="home-hero">
+  <p class="kicker">CS180 &middot; Fall 2026</p>
+  <h1>Balakrishnan Vaisiya</h1>
+  <p class="subtitle">Introduction to Computer Vision and Computational Photography</p>
+</div>
 
-<h2>Projects</h2>
 <ul class="project-list">
-  <li><a href="./0/index.html">Project 0 &mdash; Becoming Friends with Your Camera</a></li>
+  <li>
+    <a class="project-card" href="./0/index.html">
+      <img class="thumb" src="./0/media/part1_far.jpeg" alt="Self-portrait from Project 0's focal-length exercise">
+      <span class="meta">
+        <p class="kicker">Project 0</p>
+        <h3>Becoming Friends with Your Camera</h3>
+        <p>Perspective, focal length, and the physics behind a few photography exercises.</p>
+      </span>
+    </a>
+  </li>
+  <li>
+    <a class="project-card" href="./1/index.html">
+      <img class="thumb" src="./1/media/emir_gradient.jpg" alt="Restored Prokudin-Gorskii plate of the Emir of Bukhara">
+      <span class="meta">
+        <p class="kicker">Project 1</p>
+        <h3>Colorizing the Prokudin-Gorskii Collection</h3>
+        <p>Aligning glass-plate negatives into color photographs, from single-scale search to a coarse-to-fine pyramid.</p>
+      </span>
+    </a>
+  </li>
 </ul>
-
-<footer>
-  Built for CS180, Fall 2026.
-</footer>
 
 </body>
 </html>
