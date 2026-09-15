@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project 1 — Colorizing the Prokudin-Gorskii Collection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=Space+Mono:wght@400;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+</head>
+<body class="proj1-wide">
+<div class="scroll-progress" aria-hidden="true"><span id="scrollProgress"></span></div>
+
+<a class="back-link" href="../index.html">&larr; Balakrishnan Vaisiya / CS180</a>
+
+<p class="kicker-line">Project 1 &middot; Fall 2026</p>
+<h1>Colorizing the Prokudin-Gorskii Collection</h1>
+<p class="subtitle">Aligning glass-plate negatives into color photographs from a brute-force search
+  on small JPEGs to a coarse-to-fine pyramid on full-resolution scans.</p>
+
+<div class="hero-slider" id="heroSlider">
+  <img class="before-layer" src="media/cathedral_naive.jpg" alt="Cathedral plate, channels not yet aligned">
+  <img class="after-layer" id="heroAfter" src="media/cathedral_single.jpg" alt="Cathedral plate, aligned">
+  <div class="divider" id="heroDivider"></div>
+  <div class="handle" id="heroHandle">&harr;</div>
+  <span class="tag tag-left">unaligned</span>
+  <span class="tag tag-right">aligned</span>
+</div>
+<p class="hero-caption">Drag to compare the blue, green, and red exposures of <code>cathedral.jpg</code>, stacked as shot vs. after search.</p>
+
+<nav class="section-nav">
+  <a href="#single-scale">1. Single-scale</a>
+  <a href="#multi-scale">2. Multi-scale</a>
+  <a href="#failure-case">3. Failure case</a>
+  <a href="#own-examples">4. My own plates</a>
+  <a href="#bells-whistles">5. Bells &amp; whistles</a>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="single-scale"><span class="num">01</span>Single-scale alignment</h2>
+<div class="reveal">
+
+<p>Sergei Prokudin-Gorskii photographed the Russian Empire between 1909 and 1915 by taking three
+  exposures of the same scene through red, green, and blue filters. Split a plate into thirds
+  and you get three grayscale images that are almost, but not quite, in register, since the plate
+  or camera moved slightly between exposures. This project finds the <code>(dy, dx)</code> shift
+  that brings green and red back into register with blue, then stacks the three as color channels.</p>
+
+<p>Below are the three exposures of <code>cathedral.jpg</code> shown side by side. Note that in the 
+  actual glass-plate negatives, they are stacked vertically.</p>
+
+<figure class="channel-strip">
+  <div class="channel-strip-row">
+    <figure class="channel-shot chan-b">
+      <img src="media/cathedral_b.jpg" alt="Blue exposure of the cathedral plate">
+      <figcaption>B</figcaption>
+    </figure>
+    <figure class="channel-shot chan-g">
+      <img src="media/cathedral_g.jpg" alt="Green exposure of the cathedral plate">
+      <figcaption>G</figcaption>
+    </figure>
+    <figure class="channel-shot chan-r">
+      <img src="media/cathedral_r.jpg" alt="Red exposure of the cathedral plate">
+      <figcaption>R</figcaption>
+    </figure>
+  </div>
+</figure>
+
+</div>
+
+<div class="reveal from-right">
+<p>The simplest approach is to try every whole-pixel shift in a window and keep the one that
+  makes the channel look most like the blue reference. This can be scored two ways:</p>
+
+<div class="formula-label">Euclidean distance (L2)</div>
+<p>Sum the squared pixel-wise difference between a shifted channel <span class="math">A</span> and
+the reference <span class="math">B</span>, over the cropped interior. Then, keep the shift that
+<strong>minimizes</strong> it.</p>
+<div class="formula">$$ D_{L2}(A, B) \;=\; \sqrt{\sum_{i,j} \left(A_{i,j} - B_{i,j}\right)^2} $$</div>
+
+<div class="formula-label">Normalized cross-correlation (NCC)</div>
+<p>Mean-subtract and unit-normalize both patches first, </p>
+<div class="formula">$$ \hat{A} \;=\; \frac{A - \bar{A}}{\lVert A - \bar{A} \rVert}, \qquad
+\hat{B} \;=\; \frac{B - \bar{B}}{\lVert B - \bar{B} \rVert} $$</div>
+<p>then take their dot product. Keep the shift that <strong>maximizes</strong> it.</p>
+<div class="formula">$$ \mathrm{NCC}(A, B) \;=\; \hat{A} \cdot \hat{B} \;=\; \sum_{i,j} \hat{A}_{i,j}\,\hat{B}_{i,j} $$</div>
+
+<p>Both metrics trim 15% off every side before scoring, since the scanned plates have dark, uneven
+borders that have nothing to do with scene content. If left untrimmed, the search could align the borders
+instead of the picture. I chose 15% after sweeping different percentages (5, 10, 15, 20) and found no significant
+difference in the results.</p>
+</div>
+
+<figure class="evidence-figure reveal">
+  <div class="image-frame">
+    <img src="media/border_trim_sweep.png"
+         alt="Four aligned cathedral results comparing border trims of 5%, 10%, 15%, and 20%. The displayed shifts are stable across the sweep.">
+  </div>
+  <figcaption>Border-trim sweep: 5%, 10%, 15%, and 20% produce visually indistinguishable alignments; 15% is used for scoring.</figcaption>
+</figure>
+
+<div class="reveal from-right">
+<p>To determine the size of the search window, I swept a few radii (5, 10, 15, 20) on <code>cathedral.jpg</code>
+  and looked for the smallest one where both G and R shifts had settled and stopped landing on the search
+  boundaries. The smallest window that met these criteria was 15 pixels.</p>
+
+<table class="ledger">
+<caption>Window sweep on cathedral.jpg</caption>
+<thead><tr><th>window</th><th>G shift</th><th>R shift</th><th>G at boundary?</th><th>R at boundary?</th></tr></thead>
+<tbody>
+<tr><td>5</td><td>(5, 2)</td><td>(5, 1)</td><td>yes</td><td>yes</td></tr>
+<tr><td>10</td><td>(5, 2)</td><td>(10, 3)</td><td>no</td><td>yes</td></tr>
+<tr><td>15</td><td>(5, 2)</td><td>(12, 3)</td><td>no</td><td>no</td></tr>
+<tr><td>20</td><td>(5, 2)</td><td>(12, 3)</td><td>no</td><td>no</td></tr>
+</tbody>
+</table>
+
+<p>Using a search radius of 15 pixels, both NCC and L2 converge on identical alignment offsets across all three JPEGs.
+  The results below were generated using NCC.</p>
+</div>
+
+<div class="board reveal" id="boardSingle">
+  <div class="plate">
+    <div class="frame"><img src="media/cathedral_single.jpg" alt="Aligned cathedral plate" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">cathedral</span><span class="cap-no">0.463s</span></div>
+    <div class="shifts"><span class="g">G (5, 2)</span> &nbsp; <span class="r">R (12, 3)</span></div>
+  </div>
+  <div class="plate">
+    <div class="frame"><img src="media/monastery_single.jpg" alt="Aligned monastery plate" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">monastery</span><span class="cap-no">0.514s</span></div>
+    <div class="shifts"><span class="g">G (&minus;3, 2)</span> &nbsp; <span class="r">R (3, 2)</span></div>
+  </div>
+  <div class="plate">
+    <div class="frame"><img src="media/tobolsk_single.jpg" alt="Aligned tobolsk plate" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">tobolsk</span><span class="cap-no">0.476s</span></div>
+    <div class="shifts"><span class="g">G (3, 3)</span> &nbsp; <span class="r">R (6, 3)</span></div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="multi-scale"><span class="num">02</span>Multi-scale pyramid alignment</h2>
+<div class="reveal from-right">
+
+<p>The full-resolution <code>.tif</code> scans are far larger than the JPEGs and can need displacements
+  beyond the single-scale search range. However, widening a full-resolution search gets
+  expensive very fast, since every extra pixel of radius adds many more candidates to evaluate.</p>
+
+<p>To tackle this, I use a coarse-to-fine pyramid approach. The idea is to estimate the large
+  displacement while the image is small and cheap to search, then propagate that estimate up to
+  full resolution and only search a small local neighborhood around it at each step.</p>
+
+<p><strong>Algorithm:</strong></p>
+<ol>
+<li>If the image is small enough (<code>min_size</code>), run the wider search directly.</li>
+<li>Otherwise, downsample both channels by 2 and solve the smaller problem first.</li>
+<li>Multiply the coarse displacement by 2 to bring it to the current resolution.</li>
+<li>Apply it, then search only a small local <code>refine_window</code> around it.</li>
+</ol>
+
+<p>When shrinking the image for the pyramid, I apply a blur filter to smooth out sharp details.
+  If you just grab every second pixel, this can create false patterns in fine details like brickwork.
+  This tricks the coarse search into picking a wrong shift. Since the remaining levels only check 
+  nearby pixels, the algorithm stays stuck on that mistake.</p>
+
+</div>
+
+<div class="reveal">
+<p><code>coarse_window=15</code> gives enough range at the smallest level. To determine the optimal 
+  <code>refine_window</code>, I swept it on three plates (<code>tobolsk.jpg</code>, 
+  <code>melons.tif</code>, <code>emir.tif</code>) chosen to span the range of behavior 
+  (small JPEG and larger TIFs).</p>
+
+<table class="ledger">
+<caption>refine_window sweep, full results</caption>
+<thead><tr><th>image</th><th>rw</th><th>G shift</th><th>R shift</th><th>time</th></tr></thead>
+<tbody>
+<tr><td class="name">tobolsk.jpg</td><td>2</td><td>(3, 3)</td><td>(6, 3)</td><td>0.10s</td></tr>
+<tr><td class="name">tobolsk.jpg</td><td>3</td><td>(3, 3)</td><td>(6, 3)</td><td>0.11s</td></tr>
+<tr><td class="name">tobolsk.jpg</td><td>4</td><td>(3, 3)</td><td>(6, 3)</td><td>0.12s</td></tr>
+<tr><td class="name">tobolsk.jpg</td><td>5</td><td>(3, 3)</td><td>(6, 3)</td><td>0.14s</td></tr>
+<tr><td class="name">tobolsk.jpg</td><td>6</td><td>(3, 3)</td><td>(6, 3)</td><td>0.17s</td></tr>
+<tr><td class="name">melons.tif</td><td>2</td><td>(82, 10)</td><td>(178, 13)</td><td>2.01s</td></tr>
+<tr><td class="name">melons.tif</td><td>3</td><td>(82, 10)</td><td>(178, 13)</td><td>3.04s</td></tr>
+<tr><td class="name">melons.tif</td><td>4</td><td>(82, 10)</td><td>(178, 13)</td><td>4.54s</td></tr>
+<tr><td class="name">melons.tif</td><td>5</td><td>(82, 10)</td><td>(178, 13)</td><td>6.22s</td></tr>
+<tr><td class="name">melons.tif</td><td>6</td><td>(82, 10)</td><td>(178, 13)</td><td>8.94s</td></tr>
+<tr class="flag"><td class="name">emir.tif</td><td>2</td><td>(49, 24)</td><td>(413, &minus;788)</td><td>2.04s</td></tr>
+<tr class="flag"><td class="name">emir.tif</td><td>3</td><td>(49, 24)</td><td>(413, &minus;788)</td><td>3.15s</td></tr>
+<tr class="flag"><td class="name">emir.tif</td><td>4</td><td>(49, 24)</td><td>(413, &minus;788)</td><td>4.67s</td></tr>
+<tr class="flag"><td class="name">emir.tif</td><td>5</td><td>(49, 24)</td><td>(413, &minus;788)</td><td>6.30s</td></tr>
+<tr class="flag"><td class="name">emir.tif</td><td>6</td><td>(49, 24)</td><td>(413, &minus;576)</td><td>8.65s</td></tr>
+</tbody>
+</table>
+
+<table class="ledger">
+<caption>Stability relative to refine_window = 6</caption>
+<thead><tr><th>window</th><th>same G</th><th>same R</th><th>same both</th><th>total time</th></tr></thead>
+<tbody>
+<tr><td>2</td><td>3/3</td><td>2/3</td><td>2/3</td><td>4.15s</td></tr>
+<tr><td>3</td><td>3/3</td><td>2/3</td><td>2/3</td><td>6.30s</td></tr>
+<tr><td>4</td><td>3/3</td><td>2/3</td><td>2/3</td><td>9.33s</td></tr>
+<tr><td>5</td><td>3/3</td><td>2/3</td><td>2/3</td><td>12.66s</td></tr>
+<tr><td>6</td><td>3/3</td><td>3/3</td><td>3/3</td><td>17.76s</td></tr>
+</tbody>
+</table>
+
+<p>Tobolsk and melons are stable from the smallest window. Emir is not: it sits at 
+  <code>(413, &minus;788)</code> for <code>rw = 2</code> through <code>5</code>, then 
+  jumps to <code>(413, &minus;576)</code> at <code>rw = 6</code>. <code>refine_window = 6</code> 
+  is the value used from now on, since it's the smallest setting where every plate in 
+  the sweep agrees with wider settings.</p>
+</div>
+
+<div class="reveal from-right">
+<h3>Results on all 14 provided plates</h3>
+<p>Multi-scale pyramid, NCC computed on raw RGB pixel values.</p>
+</div>
+
+<div class="board reveal" id="boardPyramid">
+  <div class="plate"><div class="frame"><img src="media/cathedral_pyramid.jpg" alt="Aligned cathedral" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">cathedral</span><span class="cap-no">0.15s</span></div>
+    <div class="shifts"><span class="g">G (5, 2)</span> &nbsp; <span class="r">R (12, 3)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/church_pyramid.jpg" alt="Aligned church" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">church</span><span class="cap-no">8.95s</span></div>
+    <div class="shifts"><span class="g">G (25, 4)</span> &nbsp; <span class="r">R (58, &minus;4)</span></div></div>
+  <div class="plate flagged"><div class="frame"><img src="media/emir_pyramid.jpg" alt="Emir plate, misaligned by raw-pixel NCC" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">emir</span><span class="cap-no">8.98s</span></div>
+    <div class="shifts"><span class="g">G (49, 24)</span> &nbsp; <span class="r">R (413, &minus;576)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/harvesters_pyramid.jpg" alt="Aligned harvesters" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">harvesters</span><span class="cap-no">9.03s</span></div>
+    <div class="shifts"><span class="g">G (59, 16)</span> &nbsp; <span class="r">R (124, 13)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/icon_pyramid.jpg" alt="Aligned icon" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">icon</span><span class="cap-no">9.01s</span></div>
+    <div class="shifts"><span class="g">G (41, 17)</span> &nbsp; <span class="r">R (89, 23)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/ilemselga_pyramid.jpg" alt="Aligned ilemselga" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">ilemselga</span><span class="cap-no">9.12s</span></div>
+    <div class="shifts"><span class="g">G (40, 7)</span> &nbsp; <span class="r">R (130, 11)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/melons_pyramid.jpg" alt="Aligned melons" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">melons</span><span class="cap-no">9.02s</span></div>
+    <div class="shifts"><span class="g">G (82, 10)</span> &nbsp; <span class="r">R (178, 13)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/monastery_pyramid.jpg" alt="Aligned monastery" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">monastery</span><span class="cap-no">0.15s</span></div>
+    <div class="shifts"><span class="g">G (&minus;3, 2)</span> &nbsp; <span class="r">R (3, 2)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/religous_painting_pyramid.jpg" alt="Aligned religious painting" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">religious painting</span><span class="cap-no">9.26s</span></div>
+    <div class="shifts"><span class="g">G (28, 3)</span> &nbsp; <span class="r">R (68, 7)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/self_portrait_pyramid.jpg" alt="Aligned self portrait" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">self portrait</span><span class="cap-no">8.96s</span></div>
+    <div class="shifts"><span class="g">G (79, 29)</span> &nbsp; <span class="r">R (176, 37)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/siren_pyramid.jpg" alt="Aligned siren" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">siren</span><span class="cap-no">9.19s</span></div>
+    <div class="shifts"><span class="g">G (49, &minus;6)</span> &nbsp; <span class="r">R (96, &minus;25)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/three_generations_pyramid.jpg" alt="Aligned three generations" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">three generations</span><span class="cap-no">8.68s</span></div>
+    <div class="shifts"><span class="g">G (53, 14)</span> &nbsp; <span class="r">R (112, 11)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/tobolsk_pyramid.jpg" alt="Aligned tobolsk" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">tobolsk</span><span class="cap-no">0.16s</span></div>
+    <div class="shifts"><span class="g">G (3, 3)</span> &nbsp; <span class="r">R (6, 3)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/wharf_pyramid.jpg" alt="Aligned wharf" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">wharf</span><span class="cap-no">9.08s</span></div>
+    <div class="shifts"><span class="g">G (15, &minus;7)</span> &nbsp; <span class="r">R (83, &minus;16)</span></div></div>
+</div>
+
+<p style="font-size:0.85em; color:var(--ink-faint);">* Emir is visibly misaligned — see Section 3 and 5.</p>
+
+<!-- ============================================================ -->
+<h2 id="failure-case"><span class="num">03</span>Failure case: Emir</h2>
+<div class="reveal">
+
+<p>Emir's R shift isn't in line with its own G shift, or with the range of offsets on every other
+plate in the set. This is probably due to the difference in brightness between the different color
+channels, that can be seen below in the glass-negative:</p>
+
+</div>
+
+<figure class="channel-strip reveal from-right">
+  <div class="channel-strip-row">
+    <figure class="channel-shot chan-b">
+      <img src="media/emir_b.jpg" alt="Blue exposure of the Emir plate">
+      <figcaption>B</figcaption>
+    </figure>
+    <figure class="channel-shot chan-g">
+      <img src="media/emir_g.jpg" alt="Green exposure of the Emir plate">
+      <figcaption>G</figcaption>
+    </figure>
+    <figure class="channel-shot chan-r">
+      <img src="media/emir_r.jpg" alt="Red exposure of the Emir plate">
+      <figcaption>R</figcaption>
+    </figure>
+  </div>
+  <figcaption class="channel-strip-caption">Follow the robe from <strong>B</strong> to <strong>G</strong>
+    to <strong>R</strong>. It's bright in <strong>B</strong>, a little dimmer in <strong>G</strong>, and 
+    almost very dark in <strong>R</strong>.</figcaption>
+</figure>
+
+<div class="reveal">
+<p>Raw-pixel NCC (and L2 with it) has no way to know the robe is the same surface. It just sees mismatched 
+  intensities, and can end up preferring a displacement that happens to line up brightness patterns rather 
+  than actual structure. This produces the visible ghosting and color fringing in the flagged plate in Section 2.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="own-examples"><span class="num">04</span>My own plates from the collection</h2>
+<div class="reveal from-right">
+
+<p>I downloaded four more plates from the
+<a href="https://www.loc.gov/collections/prokudin-gorskii/?st=grid" target="_blank" rel="noopener">Prokudin Gorskii collection</a>,
+run through the same algorithm as Section 2. I picked a portrait, a group photo, a close-up study, and an architectural
+shot.</p>
+
+</div>
+
+<div class="board reveal" id="boardCustom">
+  <div class="plate"><div class="frame"><img src="media/armenian_woman_pyramid.jpg" alt="Aligned portrait of an Armenian woman" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">armenian woman</span><span class="cap-no">8.74s</span></div>
+    <div class="shifts"><span class="g">G (48, 23)</span> &nbsp; <span class="r">R (110, 39)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/group_yurt_pyramid.jpg" alt="Aligned group photo in front of a yurt" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">group in front of yurt</span><span class="cap-no">9.36s</span></div>
+    <div class="shifts"><span class="g">G (58, 31)</span> &nbsp; <span class="r">R (130, 50)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/head_study_pyramid.jpg" alt="Aligned head study portrait" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">head study</span><span class="cap-no">8.86s</span></div>
+    <div class="shifts"><span class="g">G (55, 9)</span> &nbsp; <span class="r">R (117, 11)</span></div></div>
+  <div class="plate"><div class="frame"><img src="media/milan_cathedral_pyramid.jpg" alt="Aligned rooftop detail of Milan Cathedral" loading="lazy"></div>
+    <div class="cap"><span class="cap-name">milan cathedral, rooftop detail</span><span class="cap-no">8.92s</span></div>
+    <div class="shifts"><span class="g">G (57, 12)</span> &nbsp; <span class="r">R (126, 24)</span></div></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="bells-whistles"><span class="num">05</span>Bells &amp; whistles: gradient-based alignment</h2>
+<div class="reveal">
+
+<p>Instead of comparing raw intensities, gradient-based alignment scores candidate shifts on the
+<strong>gradient magnitude</strong> of each channel. Gradients pick out spatial structure, such as edges,
+folds, architectural lines, which holds up across channels even when absolute brightness doesn't. To test 
+this approach, I re-ran the multi-scale pyramid on <code>emir.tif</code> using NCC on gradient magnitudes 
+instead of raw pixel values.</p>
+
+</div>
+
+<div class="compare reveal from-right">
+  <figure>
+    <img src="media/emir_pyramid.jpg" alt="Emir aligned with raw-pixel NCC, ghosted">
+    <figcaption>Raw-pixel NCC (before)<span class="shift">G (49, 24) &nbsp; R (413, &minus;576) &middot; 8.36s</span></figcaption>
+  </figure>
+  <figure>
+    <img src="media/emir_gradient.jpg" alt="Emir aligned with gradient NCC, aligned">
+    <figcaption>Gradient NCC (after)<span class="shift">G (49, 23) &nbsp; R (107, 40) &middot; 17.71s</span></figcaption>
+  </figure>
+</div>
+
+<footer>
+  <a class="back-link" href="../index.html">&larr; Back to CS180 index</a>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+(function () {
+  // Render formulas
+  if (window.renderMathInElement) {
+    renderMathInElement(document.body, {
+      delimiters: [{ left: "$$", right: "$$", display: true }]
+    });
+  }
+
+  // Hero before/after slider
+  var slider = document.getElementById('heroSlider');
+  var after = document.getElementById('heroAfter');
+  var divider = document.getElementById('heroDivider');
+  var handle = document.getElementById('heroHandle');
+
+  function setPosition(pct) {
+    pct = Math.max(2, Math.min(98, pct));
+    after.style.clipPath = 'inset(0 0 0 ' + pct + '%)';
+    divider.style.left = pct + '%';
+    handle.style.left = pct + '%';
+  }
+
+  function fromClientX(clientX) {
+    var rect = slider.getBoundingClientRect();
+    var pct = ((clientX - rect.left) / rect.width) * 100;
+    setPosition(pct);
+  }
+
+  var dragging = false;
+  slider.addEventListener('pointerdown', function (e) {
+    dragging = true;
+    fromClientX(e.clientX);
+  });
+  window.addEventListener('pointermove', function (e) {
+    if (dragging) fromClientX(e.clientX);
+  });
+  window.addEventListener('pointerup', function () { dragging = false; });
+  setPosition(50);
+
+  // Scroll-triggered "developing" effect for plates + side-reveal for prose.
+  // Falls back to showing everything immediately if IntersectionObserver isn't
+  // available, so content is never stuck invisible.
+  var targets = document.querySelectorAll('.plate, .reveal');
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('developed', 'visible');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+    targets.forEach(function (el) { io.observe(el); });
+  } else {
+    targets.forEach(function (el) { el.classList.add('developed', 'visible'); });
+  }
+
+  // stagger plates slightly within each board for a natural feel
+  document.querySelectorAll('.board').forEach(function (board) {
+    Array.from(board.children).forEach(function (plate, i) {
+      plate.style.transitionDelay = (i % 6) * 60 + 'ms';
+    });
+  });
+
+  // Thin reading-progress indicator at the top of the page.
+  var progress = document.getElementById('scrollProgress');
+  function updateProgress() {
+    var doc = document.documentElement;
+    var max = doc.scrollHeight - window.innerHeight;
+    var pct = max > 0 ? (window.scrollY / max) * 100 : 0;
+    if (progress) progress.style.width = pct + '%';
+  }
+  window.addEventListener('scroll', updateProgress, { passive: true });
+  window.addEventListener('resize', updateProgress);
+  updateProgress();
+})();
+</script>
+
+</body>
+</html>
