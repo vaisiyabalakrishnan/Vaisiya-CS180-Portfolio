@@ -919,3 +919,176 @@ body.proj1-wide footer .back-link {
     font-size: 1em;
   }
 }
+
+/* ==========================================================================
+   Project 2 — filters & frequencies
+   ========================================================================== */
+
+/* part divider ("Part 1", "Part 2") that sits above a run of sections */
+.part-label {
+  font-family: var(--mono);
+  font-size: 0.76em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 72px auto 0;
+  text-align: center;
+  max-width: none;
+}
+
+.part-label + h2 {
+  margin-top: 8px;
+}
+
+/* code */
+pre {
+  margin: 18px 0;
+  padding: 14px 16px;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  overflow-x: auto;
+  font-size: 0.8em;
+  line-height: 1.55;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 1em;
+  color: var(--ink);
+}
+
+details.code {
+  margin: 18px 0;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper-raised);
+}
+
+details.code > summary {
+  cursor: pointer;
+  padding: 10px 16px;
+  font-family: var(--mono);
+  font-size: 0.78em;
+  color: var(--ink-soft);
+  list-style-position: inside;
+}
+
+details.code > summary:hover {
+  color: var(--ink);
+}
+
+details.code[open] > summary {
+  border-bottom: 1px solid var(--rule);
+}
+
+details.code pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+
+/* three images in a row */
+.trio {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin: 22px 0;
+}
+
+.trio img {
+  width: 100%;
+  display: block;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+}
+
+@media (max-width: 700px) {
+  .trio { grid-template-columns: 1fr; }
+}
+
+/* framed images inside a .pair / .trio should get the same hairline as evidence figures */
+.pair img {
+  border: 1px solid var(--rule);
+}
+
+/* small parameter line, e.g. "sigma = 2 · kernel 13×13 · t = 0.15" */
+.params {
+  font-family: var(--mono);
+  font-size: 0.78em;
+  color: var(--ink-soft);
+  margin: 14px 0 4px;
+}
+
+.chip {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.74em;
+  padding: 1px 8px;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.chip-low  { color: var(--chan-b); }
+.chip-high { color: var(--chan-r); }
+
+/* numeric table columns */
+.ledger td.n,
+.ledger th.n {
+  text-align: right;
+}
+
+/* wide blocks that sit inside .reveal wrappers share the prose column */
+body.proj1-wide .reveal > pre,
+body.proj1-wide .reveal > details.code,
+body.proj1-wide .reveal > .note,
+body.proj1-wide .reveal > .params {
+  width: min(100%, 760px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* keep figure captions on one readable column when they follow a full-width image */
+body.proj1-wide .pair figcaption,
+body.proj1-wide .trio figcaption {
+  text-align: center;
+}
+
+/* honest-limitations aside: same look as .note, but muted rule colour */
+.note.caveat {
+  border-left-color: var(--chan-r);
+}
+
+/* single-panel figures shouldn't stretch to the full wide column */
+.evidence-figure.narrow { max-width: 520px; margin-left: auto; margin-right: auto; }
+.evidence-figure.medium { max-width: 760px; margin-left: auto; margin-right: auto; }
+
+/* figures link to the full-resolution file */
+.image-frame a,
+.pair figure > a,
+.trio figure > a {
+  display: block;
+  cursor: zoom-in;
+}
+
+/* sub-headings that sit directly under a section, in the same 760px column as the prose */
+body.proj2 > h3 {
+  width: min(100%, 760px);
+  margin: 36px auto 0;
+  text-align: left;
+}
+
+/* wide tables scroll sideways on narrow screens instead of being cut off */
+.table-scroll {
+  width: min(100%, 900px);
+  margin: 20px auto 10px;
+  overflow-x: auto;
+}
+
+.table-scroll .ledger {
+  width: 100%;
+  margin: 0;
+}
