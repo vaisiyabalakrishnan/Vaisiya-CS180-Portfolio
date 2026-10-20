@@ -1092,3 +1092,155 @@ body.proj2 > h3 {
   width: 100%;
   margin: 0;
 }
+
+/* ==========================================================================
+   Project 3 — flow models (Part A: pretrained PixNerd, Part B: MNIST from scratch)
+   ========================================================================== */
+
+/* equation tag sitting at the end of a formula line */
+.formula .tag {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 0.78em;
+  color: var(--ink-faint);
+  margin-left: 18px;
+  white-space: nowrap;
+}
+
+.math sub,
+.math sup {
+  font-size: 0.72em;
+  line-height: 0;
+}
+
+/* seven-start-time sweeps are wide; let them use the full column */
+.evidence-figure.sweep { max-width: 1080px; }
+
+/* hybrid image: full-size stage with a shrink slider, plus the real 64 x 64 file beside it */
+.hybrid-row {
+  display: grid;
+  grid-template-columns: minmax(0, 512px) 150px;
+  gap: 30px;
+  justify-content: center;
+  align-items: end;
+  margin: 24px auto 6px;
+}
+
+.shrink-stage {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--rule);
+  background: var(--paper-raised);
+  overflow: hidden;
+}
+
+.shrink-stage img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.shrink-ctl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 0.74em;
+  color: var(--ink-faint);
+}
+
+.shrink-ctl input { flex: 1; min-width: 0; accent-color: var(--ink); }
+.shrink-px { min-width: 5.5ch; text-align: right; }
+
+.actual-size img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  border: 1px solid var(--rule);
+  image-rendering: pixelated;
+}
+
+.hybrid-row figcaption { text-align: left; }
+
+@media (max-width: 640px) {
+  .hybrid-row { grid-template-columns: 1fr; justify-items: center; }
+  .hybrid-row figcaption { text-align: center; }
+}
+
+/* prompt lines under a figure */
+.prompt-line {
+  font-family: var(--mono);
+  font-size: 0.8em;
+  color: var(--ink-soft);
+  margin: 10px 0 2px;
+}
+
+.prompt-line b { font-weight: 700; color: var(--ink); }
+
+/* print / PDF: nothing may stay hidden, code is expanded, chrome is dropped */
+@media print {
+  .reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
+  .scroll-progress,
+  .section-nav,
+  .shrink-ctl { display: none !important; }
+  body.proj1-wide { width: 100%; padding-top: 12px; }
+  pre { white-space: pre-wrap; word-break: break-word; font-size: 0.72em; }
+  figure, .pair figure, .hybrid-row { break-inside: avoid; }
+  h2, h3 { break-after: avoid; }
+}
+
+/* sub-sub headings and prompt lines live in the same 760px reading column as the prose */
+body.proj3 .reveal > h4,
+body.proj3 .reveal > .prompt-line {
+  width: min(100%, 760px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+body.proj3 .reveal > h4 {
+  margin-top: 30px;
+  margin-bottom: 4px;
+  font-family: var(--serif);
+  font-size: 1.02em;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+}
+
+/* hat accent (v-hat, x-hat) drawn in CSS so it doesn't depend on the font's combining marks */
+.math .hat { position: relative; display: inline-block; }
+.math .hat::after {
+  content: "^";
+  position: absolute;
+  left: 0.08em;
+  top: -0.3em;
+  font-style: normal;
+  font-size: 0.8em;
+}
+
+/* text-heavy tables: let cells wrap instead of scrolling sideways */
+.ledger.wrap {
+  font-family: var(--sans);
+  font-size: 0.92em;
+}
+
+.ledger.wrap th,
+.ledger.wrap td {
+  white-space: normal;
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.ledger.wrap td:first-child {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  white-space: nowrap;
+}
+
+@media print {
+  .table-scroll { overflow: visible !important; }
+  .ledger th, .ledger td { white-space: normal !important; }
+}
