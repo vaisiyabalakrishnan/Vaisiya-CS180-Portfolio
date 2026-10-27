@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project 4A — Image Warping and Mosaicing — CS180</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;1,400&family=Space+Mono:wght@400;700&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<noscript><style>.reveal { opacity: 1; transform: none; }</style></noscript>
+</head>
+<body class="proj1-wide proj4">
+
+<div class="scroll-progress"><span id="progress"></span></div>
+
+<a class="back-link" href="../index.html">&larr; all projects</a>
+<p class="kicker-line">Project 4 &middot; Part A</p>
+<h1>Image Warping and Mosaicing</h1>
+<p class="subtitle">Homographies from hand-clicked points, two warps written from scratch, and three blended mosaics.</p>
+
+<nav class="section-nav">
+  <a href="#photos">A.1 Photos</a>
+  <a href="#homographies">A.2 Homographies</a>
+  <a href="#warping">A.3 Warping</a>
+  <a href="#mosaics">A.4 Mosaics</a>
+  <a href="#learned">What I learned</a>
+</nav>
+
+<!-- ======================================================================= -->
+<h2 id="photos"><span class="num">A.1</span> Shooting the pictures</h2>
+
+<div class="reveal from-right">
+  <p>For each set, I stood in one spot and only rotated the camera between shots. That keeps the centre of projection fixed, so a homography relates the views, and it works no matter what the 3D scene looks like. I shrank everything to 1000 px on the long side (750 &times; 1000, portrait) so clicking and warping stay quick. The middle shot, image 1, is the reference in every set, and images 0 and 2 get warped into its frame.</p>
+
+  <h3>Mosaic 1 &mdash; I-House front and stairs</h3>
+  <div class="trio sources">
+    <figure><a href="media/mosaic_1_src0.png"><img src="media/mosaic_1_src0.png" alt="Mosaic 1, image 0: left view of the building front and stairs" loading="lazy"></a><figcaption>image 0</figcaption></figure>
+    <figure><a href="media/mosaic_1_src1.png"><img src="media/mosaic_1_src1.png" alt="Mosaic 1, image 1: centre view, the reference" loading="lazy"></a><figcaption>image 1 (reference)</figcaption></figure>
+    <figure><a href="media/mosaic_1_src2.png"><img src="media/mosaic_1_src2.png" alt="Mosaic 1, image 2: right view" loading="lazy"></a><figcaption>image 2</figcaption></figure>
+  </div>
+
+  <h3>Mosaic 2 &mdash; I-house courtyard front</h3>
+  <div class="trio sources">
+    <figure><a href="media/mosaic_2_src0.png"><img src="media/mosaic_2_src0.png" alt="Mosaic 2, image 0: left view of the courtyard" loading="lazy"></a><figcaption>image 0</figcaption></figure>
+    <figure><a href="media/mosaic_2_src1.png"><img src="media/mosaic_2_src1.png" alt="Mosaic 2, image 1: centre view, the reference" loading="lazy"></a><figcaption>image 1 (reference)</figcaption></figure>
+    <figure><a href="media/mosaic_2_src2.png"><img src="media/mosaic_2_src2.png" alt="Mosaic 2, image 2: right view" loading="lazy"></a><figcaption>image 2</figcaption></figure>
+  </div>
+
+  <h3>Mosaic 3 &mdash; I-house courtyard side</h3>
+  <div class="trio sources">
+    <figure><a href="media/mosaic_3_src0.png"><img src="media/mosaic_3_src0.png" alt="Mosaic 3, image 0: left view of the arched courtyard" loading="lazy"></a><figcaption>image 0</figcaption></figure>
+    <figure><a href="media/mosaic_3_src1.png"><img src="media/mosaic_3_src1.png" alt="Mosaic 3, image 1: centre view, the reference" loading="lazy"></a><figcaption>image 1 (reference)</figcaption></figure>
+    <figure><a href="media/mosaic_3_src2.png"><img src="media/mosaic_3_src2.png" alt="Mosaic 3, image 2: right view" loading="lazy"></a><figcaption>image 2</figcaption></figure>
+  </div>
+
+  <h3>Photos for rectification</h3>
+  <p>An emergency sign above a keypad box, and a wooden door. Both were shot at an angle.</p>
+  <div class="pair mid">
+    <figure><a href="media/rect_1_orig.png"><img src="media/rect_1_orig.png" alt="Wall sign shot from an angle, with a keypad box below it" loading="lazy"></a><figcaption>rect_1: wall sign</figcaption></figure>
+    <figure><a href="media/rect_2_orig.png"><img src="media/rect_2_orig.png" alt="Wooden door shot from an angle" loading="lazy"></a><figcaption>rect_2: door</figcaption></figure>
+  </div>
+</div>
+
+<!-- ======================================================================= -->
+<h2 id="homographies"><span class="num">A.2</span> Recovering homographies</h2>
+
+<div class="reveal">
+  <p>A homography sends a point <span class="math">(x, y)</span> in one image to <span class="math">(x&prime;, y&prime;)</span> in another through a 3&times;3 matrix, followed by a division by the third coordinate. Scaling <span class="math">H</span> doesn't change the mapping, so I fix <span class="math">H<sub>33</sub> = 1</span> and that leaves 8 unknowns.</p>
+
+  <div class="formula">
+    <div class="eq-row">
+      <div class="matrix vec" style="--cols:1"><span>wx&prime;</span><span>wy&prime;</span><span>w</span></div>
+      <span class="op">=</span>
+      <div class="matrix" style="--cols:3"><span>h<sub>1</sub></span><span>h<sub>2</sub></span><span>h<sub>3</sub></span><span>h<sub>4</sub></span><span>h<sub>5</sub></span><span>h<sub>6</sub></span><span>h<sub>7</sub></span><span>h<sub>8</sub></span><span>1</span></div>
+      <div class="matrix vec" style="--cols:1"><span>x</span><span>y</span><span>1</span></div>
+    </div>
+  </div>
+
+  <p>Multiplying out the division by <span class="math">w</span> gives two equations per correspondence that are linear in the eight unknowns:</p>
+
+  <div class="formula">
+    <div class="eq-row">
+      <div class="matrix small" style="--cols:8">
+        <span>x</span><span>y</span><span>1</span><span>0</span><span>0</span><span>0</span><span>&minus;x x&prime;</span><span>&minus;y x&prime;</span>
+        <span>0</span><span>0</span><span>0</span><span>x</span><span>y</span><span>1</span><span>&minus;x y&prime;</span><span>&minus;y y&prime;</span>
+      </div>
+      <div class="matrix vec small" style="--cols:1"><span>h<sub>1</sub></span><span>&vellip;</span><span>h<sub>8</sub></span></div>
+      <span class="op">=</span>
+      <div class="matrix vec small" style="--cols:1"><span>x&prime;</span><span>y&prime;</span></div>
+    </div>
+  </div>
+
+  <p>Four points would pin <span class="math">H</span> down exactly, but then a couple of pixels of click error swing it a lot. So I clicked 8 points per pair (6 for mosaic 2's right-to-centre pair), stacked all the rows into one tall <span class="math">A h = b</span> with <span class="math">A</span> of size 2n &times; 8, and let <code>np.linalg.lstsq</code> find the <span class="math">h</span> that minimises <span class="math">&Vert;A h &minus; b&Vert;&sup2;</span>. <code>build_system</code> makes <span class="math">A</span> and <span class="math">b</span>, and <code>computeH(im1_pts, im2_pts)</code> solves it.</p>
+
+  <h3>Correspondences</h3>
+  <p>Points are numbered on each pair. Image 0 and image 2 are each matched to the reference, image 1.</p>
+</div>
+
+<div class="reveal from-right">
+  <div class="pair">
+    <figure><a href="media/mosaic_1_0to1_points.png"><img src="media/mosaic_1_0to1_points.png" alt="Mosaic 1 correspondences, image 0 to image 1" loading="lazy"></a><figcaption>mosaic 1, image 0 &harr; image 1</figcaption></figure>
+    <figure><a href="media/mosaic_1_2to1_points.png"><img src="media/mosaic_1_2to1_points.png" alt="Mosaic 1 correspondences, image 2 to image 1" loading="lazy"></a><figcaption>mosaic 1, image 2 &harr; image 1</figcaption></figure>
+    <figure><a href="media/mosaic_2_0to1_points.png"><img src="media/mosaic_2_0to1_points.png" alt="Mosaic 2 correspondences, image 0 to image 1" loading="lazy"></a><figcaption>mosaic 2, image 0 &harr; image 1</figcaption></figure>
+    <figure><a href="media/mosaic_2_2to1_points.png"><img src="media/mosaic_2_2to1_points.png" alt="Mosaic 2 correspondences, image 2 to image 1 (6 points)" loading="lazy"></a><figcaption>mosaic 2, image 2 &harr; image 1 (6 points)</figcaption></figure>
+    <figure><a href="media/mosaic_3_0to1_points.png"><img src="media/mosaic_3_0to1_points.png" alt="Mosaic 3 correspondences, image 0 to image 1" loading="lazy"></a><figcaption>mosaic 3, image 0 &harr; image 1</figcaption></figure>
+    <figure><a href="media/mosaic_3_2to1_points.png"><img src="media/mosaic_3_2to1_points.png" alt="Mosaic 3 correspondences, image 2 to image 1" loading="lazy"></a><figcaption>mosaic 3, image 2 &harr; image 1</figcaption></figure>
+  </div>
+</div>
+
+<div class="reveal">
+  <h3>The system and the recovered H</h3>
+
+  <details class="code">
+    <summary>show A (2n &times; 8) and b for mosaic 1, image 0 &rarr; image 1</summary>
+<pre class="system"><code>A (2n x 8)  |  b (2n)
+[    513.46,     437.  ,       1.  ,       0.  ,       0.  ,       0.  , -155281.95, -132158.45]  |  302.42
+[      0.  ,       0.  ,       0.  ,     513.46,     437.  ,       1.  , -238552.67, -203029.06]  |  464.60
+[    586.51,     405.34,       1.  ,       0.  ,       0.  ,       0.  , -217840.06, -150551.14]  |  371.42
+[      0.  ,       0.  ,       0.  ,     586.51,     405.34,       1.  , -261066.83, -180425.53]  |  445.12
+[    485.05,     596.9 ,       1.  ,       0.  ,       0.  ,       0.  , -124248.89, -152900.09]  |  256.16
+[      0.  ,       0.  ,       0.  ,     485.05,     596.9 ,       1.  , -299765.25, -368889.68]  |  618.01
+[    413.62,     819.31,       1.  ,       0.  ,       0.  ,       0.  ,  -64321.12, -127407.28]  |  155.51
+[      0.  ,       0.  ,       0.  ,     413.62,     819.31,       1.  , -351641.65, -696531.78]  |  850.15
+[    708.27,     576.61,       1.  ,       0.  ,       0.  ,       0.  , -325149.39, -264709.1 ]  |  459.08
+[      0.  ,       0.  ,       0.  ,     708.27,     576.61,       1.  , -426790.19, -347456.43]  |  602.58
+[   330.83,    344.47,      1.  ,      0.  ,      0.  ,      0.  , -38825.4 , -40425.73]  |  117.36
+[      0.  ,       0.  ,       0.  ,     330.83,     344.47,       1.  , -112617.94, -117259.88]  |  340.41
+[   312.97,    462.16,      1.  ,      0.  ,      0.  ,      0.  , -25806.13, -38107.39]  |  82.45
+[      0.  ,       0.  ,       0.  ,     312.97,     462.16,       1.  , -145660.96, -215094.55]  |  465.41
+[   346.25,    523.85,      1.  ,      0.  ,      0.  ,      0.  , -39511.09, -59776.8 ]  |  114.11
+[      0.  ,       0.  ,       0.  ,     346.25,     523.85,       1.  , -184476.53, -279096.74]  |  532.78</code></pre>
+  </details>
+
+  <div class="formula">
+    <div class="eq-row">
+      <span class="op">H =</span>
+      <div class="matrix" style="--cols:3"><span>1.56118</span><span>&minus;0.17100</span><span>&minus;312.00261</span><span>0.54528</span><span>1.24482</span><span>&minus;187.14471</span><span>0.00083</span><span>&minus;0.00012</span><span>1</span></div>
+    </div>
+  </div>
+  <p>The matrices for every pair are written out in <code>results/&lt;mosaic&gt;_H.txt</code>.</p>
+
+  <h3>Checking H by reprojection</h3>
+  <p>To check each <span class="math">H</span>, I push every clicked point in the source image through it and compare the result with where I clicked in the reference. In the plots below, the green dot is the point I clicked in the reference and the red <b>+</b> is the source click after <span class="math">H</span>. The gap between them is the error.</p>
+</div>
+
+<div class="reveal from-right">
+  <div class="trio sources">
+    <figure><a href="media/mosaic_1_0to1_reproj.png"><img src="media/mosaic_1_0to1_reproj.png" alt="Mosaic 1 reprojection, image 0 to 1" loading="lazy"></a><figcaption>mosaic 1, 0 &rarr; 1</figcaption></figure>
+    <figure><a href="media/mosaic_2_0to1_reproj.png"><img src="media/mosaic_2_0to1_reproj.png" alt="Mosaic 2 reprojection, image 0 to 1" loading="lazy"></a><figcaption>mosaic 2, 0 &rarr; 1</figcaption></figure>
+    <figure><a href="media/mosaic_3_0to1_reproj.png"><img src="media/mosaic_3_0to1_reproj.png" alt="Mosaic 3 reprojection, image 0 to 1" loading="lazy"></a><figcaption>mosaic 3, 0 &rarr; 1</figcaption></figure>
+  </div>
+  <div class="trio sources">
+    <figure><a href="media/mosaic_1_2to1_reproj.png"><img src="media/mosaic_1_2to1_reproj.png" alt="Mosaic 1 reprojection, image 2 to 1" loading="lazy"></a><figcaption>mosaic 1, 2 &rarr; 1</figcaption></figure>
+    <figure><a href="media/mosaic_2_2to1_reproj.png"><img src="media/mosaic_2_2to1_reproj.png" alt="Mosaic 2 reprojection, image 2 to 1" loading="lazy"></a><figcaption>mosaic 2, 2 &rarr; 1</figcaption></figure>
+    <figure><a href="media/mosaic_3_2to1_reproj.png"><img src="media/mosaic_3_2to1_reproj.png" alt="Mosaic 3 reprojection, image 2 to 1" loading="lazy"></a><figcaption>mosaic 3, 2 &rarr; 1</figcaption></figure>
+  </div>
+
+  <div class="table-scroll">
+    <table class="ledger">
+      <caption>Reprojection error per pair, in pixels (at 750 &times; 1000)</caption>
+      <thead><tr><th>mosaic</th><th>pair</th><th class="n">points</th><th class="n">mean error</th><th class="n">max error</th></tr></thead>
+      <tbody>
+        <tr><td class="name">mosaic 1</td><td>0 &rarr; 1</td><td class="n">8</td><td class="n">1.50</td><td class="n">2.24</td></tr>
+        <tr><td class="name">mosaic 1</td><td>2 &rarr; 1</td><td class="n">8</td><td class="n">2.14</td><td class="n">3.00</td></tr>
+        <tr><td class="name">mosaic 2</td><td>0 &rarr; 1</td><td class="n">8</td><td class="n">1.70</td><td class="n">3.88</td></tr>
+        <tr><td class="name">mosaic 2</td><td>2 &rarr; 1</td><td class="n">6</td><td class="n">1.23</td><td class="n">2.19</td></tr>
+        <tr><td class="name">mosaic 3</td><td>0 &rarr; 1</td><td class="n">8</td><td class="n">1.63</td><td class="n">3.06</td></tr>
+        <tr class="flag"><td class="name">mosaic 3</td><td>2 &rarr; 1</td><td class="n">8</td><td class="n">2.63</td><td class="n">4.80</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="reveal">
+  <p>Mean errors land between 1.2 and 2.6 px, and the single worst point is 4.8 px (mosaic 3, right to centre, in red above). The biggest misses are on points that sit off the main wall plane, like the drain and the umbrella. That points to parallax first, then click error and lens distortion.</p>
+</div>
+
+<!-- ======================================================================= -->
+<h2 id="warping"><span class="num">A.3</span> Warping the images, and rectification</h2>
+
+<div class="reveal from-right">
+  <p><code>warpImageNearestNeighbor(im, H)</code> and <code>warpImageBilinear(im, H)</code> both use <b>inverse warping</b>. I push the four corners of the image through <span class="math">H</span> to get the bounding box of the output. Then every output pixel goes back through <span class="math">H<sup>&minus;1</sup></span> to find where it should read from in the source. Doing it this way means every output pixel gets asked for a value, so there are no holes. Output pixels whose source lands outside the photo get <code>mask = 0</code>, which matters later for blending.</p>
+
+  <div class="formula">
+    <div class="math">I<sub>out</sub>(x, y) = I<sub>src</sub>( H<sup>&minus;1</sup> [x, y, 1]<sup>T</sup> )</div>
+  </div>
+
+  <p>The two methods differ only in how they read the source at a non-integer position. <span class="chip chip-low">nearest neighbour</span> rounds to the closest pixel and copies it. <span class="chip chip-high">bilinear</span> takes a weighted average of the four pixels around the position, using the fractional parts <span class="math">a = x &minus; &lfloor;x&rfloor;</span> and <span class="math">b = y &minus; &lfloor;y&rfloor;</span> as weights:</p>
+
+  <div class="formula">
+    <div class="math">I(x, y) = (1&minus;a)(1&minus;b) I<sub>00</sub> + a(1&minus;b) I<sub>10</sub> + (1&minus;a) b I<sub>01</sub> + a b I<sub>11</sub></div>
+  </div>
+
+  <h3>Rectification</h3>
+  <p>Before trusting the warps on real mosaics, I tested them on single photos. I click the four corners of something that should be a rectangle and map them to the corners of an upright rectangle. If <span class="math">H</span> and the warp are right, the object comes out front-on. Everything else on that same plane gets straightened too.</p>
+
+  <h3>Rectification 1 &mdash; wall sign (output 1269 &times; 1355)</h3>
+  <figure class="evidence-figure narrow"><div class="image-frame"><a href="media/rect_1_points.png"><img src="media/rect_1_points.png" alt="Wall sign with the four clicked corners marked" loading="lazy"></a></div><figcaption>The four clicked corners</figcaption></figure>
+  <div class="pair mid">
+    <figure><a href="media/rect_1_nn.png"><img src="media/rect_1_nn.png" alt="Wall sign rectified with nearest neighbour" loading="lazy"></a><figcaption>nearest neighbour</figcaption></figure>
+    <figure><a href="media/rect_1_bil.png"><img src="media/rect_1_bil.png" alt="Wall sign rectified with bilinear interpolation" loading="lazy"></a><figcaption>bilinear</figcaption></figure>
+  </div>
+
+  <h3>Rectification 2 &mdash; door (output 955 &times; 738)</h3>
+  <figure class="evidence-figure narrow"><div class="image-frame"><a href="media/rect_2_points.png"><img src="media/rect_2_points.png" alt="Door with the four clicked corners marked" loading="lazy"></a></div><figcaption>The four clicked corners</figcaption></figure>
+  <div class="pair mid">
+    <figure><a href="media/rect_2_nn.png"><img src="media/rect_2_nn.png" alt="Door rectified with nearest neighbour" loading="lazy"></a><figcaption>nearest neighbour</figcaption></figure>
+    <figure><a href="media/rect_2_bil.png"><img src="media/rect_2_bil.png" alt="Door rectified with bilinear interpolation" loading="lazy"></a><figcaption>bilinear</figcaption></figure>
+  </div>
+
+  <p>The sign and the door both come out front-on, and the wall around them gets straightened since it's on the same plane. Things that stick out of that plane don't straighten. The keypad under the sign stays skewed, because it's closer to the camera than the wall I clicked.</p>
+
+  <div class="params">H<sub>rect 1</sub> = [[0.75651, &minus;0.03994, &minus;124.669], [&minus;0.07001, 0.51225, &minus;118.0997], [&minus;0.0008, &minus;0.00004, 1]]</div>
+  <div class="params">H<sub>rect 2</sub> = [[0.57764, &minus;0.02282, &minus;129.55046], [&minus;0.07867, 0.28382, 16.5692], [&minus;0.0006, &minus;0.00019, 1]]</div>
+</div>
+
+<div class="reveal from-right">
+  <h3>Nearest neighbour vs. bilinear</h3>
+  <p>Zoomed in, the difference is in the edges. On the door, nearest neighbour leaves stair-steps along the frame, because each output pixel copies exactly one source pixel. Bilinear is smooth, and a touch softer. The third panel is <span class="math">|NN &minus; bilinear|</span>, and it lights up along the frame edge, where values can reach about 0.24. On the plain wall in the first figure, there's almost nothing to differ on, so the gap never goes above about 0.02.</p>
+
+  <figure class="evidence-figure medium"><div class="image-frame"><a href="media/rect_1_zoom.png"><img src="media/rect_1_zoom.png" alt="Zoomed wall patch: nearest neighbour, bilinear, and the absolute difference" loading="lazy"></a></div><figcaption>rect_1, zoomed patch of the wall</figcaption></figure>
+  <figure class="evidence-figure medium"><div class="image-frame"><a href="media/rect_2_zoom.png"><img src="media/rect_2_zoom.png" alt="Zoomed door-frame patch: nearest neighbour, bilinear, and the absolute difference" loading="lazy"></a></div><figcaption>rect_2, zoomed patch across the door frame</figcaption></figure>
+
+  <div class="table-scroll">
+    <table class="ledger">
+      <caption>Time per warp, in seconds</caption>
+      <thead><tr><th>image</th><th class="n">output size</th><th class="n">nearest</th><th class="n">bilinear</th><th class="n">slowdown</th></tr></thead>
+      <tbody>
+        <tr><td class="name">rect 1</td><td class="n">1269 &times; 1355</td><td class="n">0.041</td><td class="n">0.115</td><td class="n">2.8&times;</td></tr>
+        <tr><td class="name">rect 2</td><td class="n">955 &times; 738</td><td class="n">0.016</td><td class="n">0.052</td><td class="n">3.2&times;</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Bilinear takes about three times as long, since it reads four pixels and mixes them where nearest neighbour reads one. Both finish in well under a quarter of a second at these sizes, so the extra cost doesn't matter much and the mosaics below use bilinear throughout.</p>
+</div>
+
+<!-- ======================================================================= -->
+<h2 id="mosaics"><span class="num">A.4</span> Blending into mosaics</h2>
+
+<div class="reveal">
+  <p>The reference image stays unwarped. The other two are warped into its frame with bilinear interpolation onto one shared canvas, which is the union of all three bounding boxes. That gives a stack of aligned images plus a mask for each, and the only question left is how to combine them. I tried three ways:</p>
+
+  <p><span class="chip chip-overwrite">overwrite</span> Later images simply paste over earlier ones. It's the baseline.</p>
+  <p><span class="chip chip-feather">feathering</span> A weighted average, where an image's weight at a pixel is its distance to the nearest empty pixel, so it's biggest in the middle of an image and fades to 0 at its border.</p>
+  <p><span class="chip chip-twoband">two-band</span> Split each image into low and high frequencies. The low frequencies, which carry colour and exposure, get the feathered average. The high frequencies, which carry edges and fine detail, come from whichever image has the larger weight at that pixel. Colour blends smoothly across the overlap, but each edge comes from a single image, so it can't ghost.</p>
+
+  <div class="formula">
+    <div class="math">I<sub>feather</sub> = &Sigma;<sub>i</sub> w<sub>i</sub> I<sub>i</sub> / &Sigma;<sub>i</sub> w<sub>i</sub> &nbsp;&nbsp;&nbsp; I<sub>two-band</sub> = &Sigma;<sub>i</sub> w<sub>i</sub> LP(I<sub>i</sub>) / &Sigma;<sub>i</sub> w<sub>i</sub> + HP(I<sub>argmax w</sub>)</div>
+  </div>
+  <p class="params">HP = I &minus; LP</p>
+</div>
+
+<div class="reveal from-right">
+  <h3>Mosaic 1 (canvas 1925 &times; 1412)</h3>
+  <figure class="evidence-figure medium"><div class="image-frame"><a href="media/mosaic_1_warped_weights.png"><img src="media/mosaic_1_warped_weights.png" alt="Mosaic 1: the three warped images on the shared canvas and their weight maps" loading="lazy"></a></div><figcaption>The three images on the shared canvas (top) and their weight maps (bottom)</figcaption></figure>
+  <figure class="evidence-figure medium"><div class="image-frame"><a href="media/mosaic_1_laplacian.png"><img src="media/mosaic_1_laplacian.png" alt="Final two-band mosaic of the building front and stairs" loading="lazy"></a></div><figcaption>Final mosaic, two-band blend</figcaption></figure>
+  <p>The side images get stretched outward, so the canvas ends up bow-tie shaped with black wedges. The glass doors are the weak spot here. Their reflection isn't on the wall plane, so one homography can't line it up in both images.</p>
+</div>
+
+<div class="reveal">
+  <h3>Mosaic 2 (canvas 1476 &times; 1329)</h3>
+  <figure class="evidence-figure medium"><div class="image-frame"><a href="media/mosaic_2_warped_weights.png"><img src="media/mosaic_2_warped_weights.png" alt="Mosaic 2: the three warped images on the shared canvas and their weight maps" loading="lazy"></a></div><figcaption>The three images on the shared canvas (top) and their weight maps (bottom)</figcaption></figure>
+  <figure class="evidence-figure narrow"><div class="image-frame"><a href="media/mosaic_2_laplacian.png"><img src="media/mosaic_2_laplacian.png" alt="Final two-band mosaic of the courtyard with the railing in the foreground" loading="lazy"></a></div><figcaption>Final mosaic, two-band blend</figcaption></figure>
+  <p>The building and the far side of the courtyard line up well. The railing in the foreground doesn't, because it's close to the camera, so it shifts between shots in a way that a rotation-only model can't explain.</p>
+</div>
+
+<div class="reveal from-right">
+  <h3>Mosaic 3 (canvas 1554 &times; 1428)</h3>
+  <figure class="evidence-figure medium"><div class="image-frame"><a href="media/mosaic_3_warped_weights.png"><img src="media/mosaic_3_warped_weights.png" alt="Mosaic 3: the three warped images on the shared canvas and their weight maps" loading="lazy"></a></div><figcaption>The three images on the shared canvas (top) and their weight maps (bottom)</figcaption></figure>
+  <figure class="evidence-figure narrow"><div class="image-frame"><a href="media/mosaic_3_laplacian.png"><img src="media/mosaic_3_laplacian.png" alt="Final two-band mosaic of the arched courtyard" loading="lazy"></a></div><figcaption>Final mosaic, two-band blend</figcaption></figure>
+  <p>This is the set with the worst single reprojection error (4.8 px). The arches and walls are fine, but the ground close to the camera drifts between images.</p>
+</div>
+
+<div class="reveal">
+  <h3>The three blends side by side</h3>
+</div>
+
+<div class="reveal from-right">
+  <figure class="evidence-figure"><div class="image-frame"><a href="media/mosaic_1_blend_comparison.png"><img src="media/mosaic_1_blend_comparison.png" alt="Mosaic 1: overwrite, feathering and two-band blends, with a zoomed overlap" loading="lazy"></a></div><figcaption>Mosaic 1: overwrite &rarr; feathering &rarr; two-band</figcaption></figure>
+  <figure class="evidence-figure"><div class="image-frame"><a href="media/mosaic_2_blend_comparison.png"><img src="media/mosaic_2_blend_comparison.png" alt="Mosaic 2: overwrite, feathering and two-band blends, with a zoomed overlap" loading="lazy"></a></div><figcaption>Mosaic 2: overwrite &rarr; feathering &rarr; two-band</figcaption></figure>
+  <figure class="evidence-figure"><div class="image-frame"><a href="media/mosaic_3_blend_comparison.png"><img src="media/mosaic_3_blend_comparison.png" alt="Mosaic 3: overwrite, feathering and two-band blends, with a zoomed overlap" loading="lazy"></a></div><figcaption>Mosaic 3: overwrite &rarr; feathering &rarr; two-band</figcaption></figure>
+</div>
+
+<div class="reveal">
+  <p><span class="chip chip-overwrite">overwrite</span> shows the seams, as expected.</p>
+  <p><span class="chip chip-feather">feathering</span> hides the seams, but wherever the images are slightly misregistered the detail gets averaged and ghosts.</p>
+  <p><span class="chip chip-twoband">two-band</span> keeps the smooth colour of feathering and stays sharp. It's the one I'd recommend, and it's what the final mosaics above use.</p>
+</div>
+
+<!-- ======================================================================= -->
+<h2 id="learned">What I learned</h2>
+
+<div class="reveal from-right">
+  <p>The biggest surprise was how much of this project came down to the photos, not the code. Once the solve and the warps worked, the rectifications came out clean on the first try. The mosaics were different. Every misalignment I saw (the glass door reflections, the railing, the ground close to the camera) was something that doesn't sit on the same plane as the wall. A homography can only line up one plane, or a scene seen from a single spot.</p>
+</div>
+
+<footer>
+  CS180 &middot; Fall 2026 &middot; Balakrishnan Vaisiya<br>
+  <a class="back-link" href="../index.html">&larr; all projects</a>
+</footer>
+
+<script>
+(function () {
+  // reading-progress bar
+  var bar = document.getElementById("progress");
+  function onScroll() {
+    var h = document.documentElement;
+    var max = h.scrollHeight - h.clientHeight;
+    bar.style.width = (max > 0 ? (h.scrollTop / max) * 100 : 0) + "%";
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  // slide-in reveal, with a fallback so nothing stays hidden
+  var items = document.querySelectorAll(".reveal");
+  if (!("IntersectionObserver" in window)) {
+    for (var i = 0; i < items.length; i++) items[i].classList.add("visible");
+    return;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) {
+        e.target.classList.add("visible");
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.08, rootMargin: "0px 0px -4% 0px" });
+  for (var j = 0; j < items.length; j++) io.observe(items[j]);
+})();
+</script>
+
+</body>
+</html>
