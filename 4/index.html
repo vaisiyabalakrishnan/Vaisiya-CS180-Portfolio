@@ -93,6 +93,24 @@
 
   <p>Four points would pin <span class="math">H</span> down exactly, but then a couple of pixels of click error swing it a lot. So I clicked 8 points per pair (6 for mosaic 2's right-to-centre pair), stacked all the rows into one tall <span class="math">A h = b</span> with <span class="math">A</span> of size 2n &times; 8, and let <code>np.linalg.lstsq</code> find the <span class="math">h</span> that minimises <span class="math">&Vert;A h &minus; b&Vert;&sup2;</span>. <code>build_system</code> makes <span class="math">A</span> and <span class="math">b</span>, and <code>computeH(im1_pts, im2_pts)</code> solves it.</p>
 
+  <details class="code">
+    <summary>code: build_system, computeH</summary>
+<pre><code>def build_system(im1_pts, im2_pts):
+    """Stack A h = b for the 8 unknowns of H (H[2,2] = 1). Two rows per point."""
+    A, b = [], []
+    for (x, y), (xp, yp) in zip(im1_pts, im2_pts):
+        A.append([x, y, 1, 0, 0, 0, -x * xp, -y * xp]); b.append(xp)
+        A.append([0, 0, 0, x, y, 1, -x * yp, -y * yp]); b.append(yp)
+    return np.array(A, float), np.array(b, float)
+
+
+def computeH(im1_pts, im2_pts):
+    """Least-squares homography with im2_pts ~ H @ im1_pts (both n x 2, (x, y))."""
+    A, b = build_system(im1_pts, im2_pts)
+    h = np.linalg.lstsq(A, b, rcond=None)[0]
+    return np.append(h, 1).reshape(3, 3)</code></pre>
+  </details>
+
   <h3>Correspondences</h3>
   <p>Points are numbered on each pair. Image 0 and image 2 are each matched to the reference, image 1.</p>
 </div>
@@ -192,8 +210,73 @@
     <div class="math">I(x, y) = (1&minus;a)(1&minus;b) I<sub>00</sub> + a(1&minus;b) I<sub>10</sub> + (1&minus;a) b I<sub>01</sub> + a b I<sub>11</sub></div>
   </div>
 
+  <details class="code">
+    <summary>code: output_bbox, inverse_coords, warpImageNearestNeighbor, warpImageBilinear</summary>
+<pre><code>def apply_H(H, pts):
+    p = np.c_[pts, np.ones(len(pts))] @ H.T
+    return p[:, :2] / p[:, 2:3]
+
+
+def output_bbox(shape, H):
+    """Integer bounding box (xmin, ymin, xmax, ymax) of the image's corners pushed through H."""
+    h, w = shape[:2]
+    c = apply_H(H, np.array([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], float))
+    return (int(np.floor(c[:, 0].min())), int(np.floor(c[:, 1].min())),
+            int(np.ceil(c[:, 0].max())), int(np.ceil(c[:, 1].max())))
+
+
+def inverse_coords(H, bbox):
+    """For every output pixel in bbox, the (x, y) it reads from in the source (via H^-1)."""
+    xmin, ymin, xmax, ymax = bbox
+    xs, ys = np.meshgrid(np.arange(xmin, xmax + 1), np.arange(ymin, ymax + 1))
+    p = np.stack([xs.ravel(), ys.ravel(), np.ones(xs.size)]) 
+    q = np.linalg.inv(H) @ p
+    return (q[0] / q[2]).reshape(xs.shape), (q[1] / q[2]).reshape(xs.shape)
+
+
+def warpImageNearestNeighbor(im, H, bbox=None):
+    h, w = im.shape[:2]
+    bbox = bbox or output_bbox(im.shape, H)
+    sx, sy = inverse_coords(H, bbox)
+    col, row = np.round(sx).astype(int), np.round(sy).astype(int)
+    mask = (col &gt;= 0) &amp; (col &lt; w) &amp; (row &gt;= 0) &amp; (row &lt; h)
+    out = np.zeros(sx.shape + im.shape[2:], dtype=float)
+    out[mask] = im[row[mask], col[mask]]
+    return out, mask.astype(float), bbox
+
+
+def warpImageBilinear(im, H, bbox=None):
+    h, w = im.shape[:2]
+    bbox = bbox or output_bbox(im.shape, H)
+    sx, sy = inverse_coords(H, bbox)
+    mask = (sx &gt;= 0) &amp; (sx &lt;= w - 1) &amp; (sy &gt;= 0) &amp; (sy &lt;= h - 1)
+    x, y = sx[mask], sy[mask]
+    x0 = np.minimum(np.floor(x).astype(int), w - 2)   # top-left neighbour
+    y0 = np.minimum(np.floor(y).astype(int), h - 2)
+    a, b = x - x0, y - y0                              # fractional parts
+    if im.ndim == 3:
+        a, b = a[:, None], b[:, None]
+    out = np.zeros(sx.shape + im.shape[2:], dtype=float)
+    out[mask] = ((1 - a) * (1 - b) * im[y0, x0] + a * (1 - b) * im[y0, x0 + 1]
+                 + (1 - a) * b * im[y0 + 1, x0] + a * b * im[y0 + 1, x0 + 1])
+    return out, mask.astype(float), bbox</code></pre>
+  </details>
+
   <h3>Rectification</h3>
   <p>Before trusting the warps on real mosaics, I tested them on single photos. I click the four corners of something that should be a rectangle and map them to the corners of an upright rectangle. If <span class="math">H</span> and the warp are right, the object comes out front-on. Everything else on that same plane gets straightened too.</p>
+
+  <details class="code">
+    <summary>code: rectifying one photo</summary>
+<pre><code># click 4 corners of a known rectangle, send them to an upright rectangle
+im = load_image("rect_1.jpg", 1000)
+p1 = np.array(corners_clicked)                       # 4 x 2, (x, y)
+tw, th = target_size                                 # the rectangle's real aspect ratio
+p2 = np.array([[0, 0], [tw, 0], [tw, th], [0, th]], float)
+
+H = computeH(p1, p2)
+nn,  _, _ = warpImageNearestNeighbor(im, H)
+bil, _, _ = warpImageBilinear(im, H)</code></pre>
+  </details>
 
   <h3>Rectification 1 &mdash; wall sign (output 1269 &times; 1355)</h3>
   <figure class="evidence-figure narrow"><div class="image-frame"><a href="media/rect_1_points.png"><img src="media/rect_1_points.png" alt="Wall sign with the four clicked corners marked" loading="lazy"></a></div><figcaption>The four clicked corners</figcaption></figure>
@@ -250,6 +333,56 @@
     <div class="math">I<sub>feather</sub> = &Sigma;<sub>i</sub> w<sub>i</sub> I<sub>i</sub> / &Sigma;<sub>i</sub> w<sub>i</sub> &nbsp;&nbsp;&nbsp; I<sub>two-band</sub> = &Sigma;<sub>i</sub> w<sub>i</sub> LP(I<sub>i</sub>) / &Sigma;<sub>i</sub> w<sub>i</sub> + HP(I<sub>argmax w</sub>)</div>
   </div>
   <p class="params">HP = I &minus; LP</p>
+
+  <details class="code">
+    <summary>code: warp_to_canvas, edge_weights, blend_overwrite, blend_feather, blend_laplacian</summary>
+<pre><code># uses: from scipy.ndimage import distance_transform_edt, gaussian_filter
+
+def warp_to_canvas(images, Hs, warp):
+    """Warp every image (H maps it into the reference frame) onto one shared canvas."""
+    boxes = [output_bbox(im.shape, H) for im, H in zip(images, Hs)]
+    bbox = (min(b[0] for b in boxes), min(b[1] for b in boxes),
+            max(b[2] for b in boxes), max(b[3] for b in boxes))
+    warped, masks = [], []
+    for im, H in zip(images, Hs):
+        w_, m_, _ = warp(im, H, bbox)
+        warped.append(w_); masks.append(m_)
+    return warped, masks, bbox
+
+
+def edge_weights(masks):
+    """Weight = distance to the nearest empty pixel: biggest mid-image, 0 at the border."""
+    return [distance_transform_edt(m &gt; 0) for m in masks]
+
+
+def blend_overwrite(warped, masks):
+    out = np.zeros_like(warped[0])
+    for w_, m in zip(warped, masks):
+        out[m &gt; 0] = w_[m &gt; 0]
+    return out
+
+
+def blend_feather(warped, masks):
+    ws = edge_weights(masks)
+    num = sum(w_ * wt[..., None] for w_, wt in zip(warped, ws))
+    den = sum(ws)[..., None]
+    return np.where(den &gt; 0, num / np.maximum(den, 1e-8), 0)
+
+
+def blend_laplacian(warped, masks, sigma=4):
+    """Two-band: feather the low frequencies, take the high ones from the heaviest image."""
+    ws = edge_weights(masks)
+    lows, highs = [], []
+    for w_, m in zip(warped, masks):
+        lows.append(gaussian_filter(w_, (sigma, sigma, 0)))
+        highs.append(w_ - lows[-1])
+    den = np.maximum(sum(ws), 1e-8)[..., None]
+    low = sum(l * wt[..., None] for l, wt in zip(lows, ws)) / den
+    best = np.argmax(np.stack(ws), axis=0)                        # which image wins here
+    high = np.take_along_axis(np.stack(highs), best[None, ..., None], axis=0)[0]
+    covered = (sum(masks) &gt; 0)[..., None]
+    return np.clip(low + high, 0, 1) * covered</code></pre>
+  </details>
 </div>
 
 <div class="reveal from-right">
