@@ -1244,3 +1244,76 @@ body.proj3 .reveal > h4 {
   .table-scroll { overflow: visible !important; }
   .ledger th, .ledger td { white-space: normal !important; }
 }
+
+/* ==========================================================================
+   Project 4 — image warping and mosaicing (Part A)
+   ========================================================================== */
+
+/* rendered matrices: bracket-style grid, numbers right-aligned in mono */
+.matrix {
+  display: inline-grid;
+  grid-template-columns: repeat(var(--cols, 3), auto);
+  gap: 3px 16px;
+  padding: 8px 14px;
+  border-left: 1px solid var(--ink);
+  border-right: 1px solid var(--ink);
+  border-radius: 7px;
+  font-family: var(--mono);
+  font-size: 0.8em;
+  line-height: 1.45;
+  text-align: right;
+  color: var(--ink);
+  vertical-align: middle;
+}
+
+.matrix.small { font-size: 0.74em; gap: 3px 12px; }
+.matrix.vec { gap: 3px 0; }
+
+.eq-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.eq-row .op {
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+/* image sets that come from small notebook figures: keep them near native size */
+.trio.sources { max-width: 760px; margin-left: auto; margin-right: auto; }
+.pair.mid { max-width: 880px; margin-left: auto; margin-right: auto; }
+
+.trio figure,
+.pair figure { margin: 0; }
+
+.trio figcaption,
+.pair figcaption {
+  font-family: var(--sans);
+}
+
+/* scrollable system-of-equations block */
+details.code pre.system {
+  max-height: 420px;
+  font-size: 0.72em;
+  white-space: pre;
+}
+
+/* chips for the three blend methods, reusing the channel colours */
+.chip-overwrite { color: var(--chan-r); }
+.chip-feather   { color: var(--chan-g); }
+.chip-twoband   { color: var(--chan-b); }
+
+body.proj4 .reveal > .eq-row,
+body.proj4 .reveal > .formula {
+  width: min(100%, 760px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media print {
+  .matrix { break-inside: avoid; }
+  details.code pre.system { max-height: none; }
+}
