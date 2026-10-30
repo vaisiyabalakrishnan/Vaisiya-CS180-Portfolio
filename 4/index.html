@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Project 4A — Image Warping and Mosaicing — CS180</title>
+<title>Project 4 — Image Warping and Mosaicing — CS180</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;1,400&family=Space+Mono:wght@400;700&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
@@ -15,19 +15,24 @@
 <div class="scroll-progress"><span id="progress"></span></div>
 
 <a class="back-link" href="../index.html">&larr; all projects</a>
-<p class="kicker-line">Project 4 &middot; Part A</p>
+<p class="kicker-line">Project 4 &middot; Parts A and B</p>
 <h1>Image Warping and Mosaicing</h1>
-<p class="subtitle">Homographies from hand-clicked points, two warps written from scratch, and three blended mosaics.</p>
+<p class="subtitle">Homographies from hand-clicked points, two warps written from scratch, and three blended mosaics. Then the same mosaics again, with Harris corners, feature matching and RANSAC doing the clicking.</p>
 
 <nav class="section-nav">
   <a href="#photos">A.1 Photos</a>
   <a href="#homographies">A.2 Homographies</a>
   <a href="#warping">A.3 Warping</a>
   <a href="#mosaics">A.4 Mosaics</a>
+  <a href="#harris">B.1 Harris + ANMS</a>
+  <a href="#descriptors">B.2 Descriptors</a>
+  <a href="#matching">B.3 Matching</a>
+  <a href="#ransac">B.4 RANSAC</a>
   <a href="#learned">What I learned</a>
 </nav>
 
 <!-- ======================================================================= -->
+<p class="part-label">Part A</p>
 <h2 id="photos"><span class="num">A.1</span> Shooting the pictures</h2>
 
 <div class="reveal from-right">
@@ -423,10 +428,322 @@ def blend_laplacian(warped, masks, sigma=4):
 </div>
 
 <!-- ======================================================================= -->
+<p class="part-label">Part B</p>
+<h2 id="harris"><span class="num">B.1</span> Harris corners and ANMS</h2>
+
+<div class="reveal from-right">
+  <p>For a pair of photos, Part B finds corners in each, describes the patch around every corner, matches descriptors across the two photos, and runs RANSAC to discard the wrong matches before solving for <span class="math">H</span>. The warping and blending are Part A's code, unchanged (<code>mosaic.py</code>). Everything new is in <code>autostitch.py</code>. The photos, the reference frames and my Part A clicks all come from the same <code>config.json</code>, so the manual and automatic mosaics at the end are built from identical inputs.</p>
+
+  <p class="params">500 corners per image &middot; 8&times;8 descriptor from a 40&times;40 window &middot; ratio &lt; 0.6 &middot; RANSAC 5000 iterations, &epsilon; = 3 px</p>
+
+  <p>For corners I used the provided <code>harris.py</code>: single scale, &sigma; = 1, and anything within 20 px of the border is dropped so a 40&times;40 window always fits. It returns every local maximum of the Harris response, which is a lot of points: 16,626 in the mosaic 1 image below and about 17,000 in each of the other two. I discard anything weaker than 0.5% of the strongest response, and I still have to pick 500.</p>
+
+  <p>The obvious pick is the 500 strongest, but those clump (middle panels). So I use <b>adaptive non-maximal suppression</b>. Each corner gets a suppression radius: the distance to the nearest corner that is clearly stronger than it.</p>
+
+  <div class="formula">
+    <div class="math">r<sub>i</sub> = min<sub>j</sub> &Vert;x<sub>i</sub> &minus; x<sub>j</sub>&Vert; &nbsp;&nbsp; such that &nbsp;&nbsp; f(x<sub>i</sub>) &lt; c &middot; f(x<sub>j</sub>), &nbsp;&nbsp; c = 0.9</div>
+  </div>
+
+  <p>The strongest corner in the image has no stronger neighbour, so its radius is infinite and it always survives. I keep the 500 corners with the largest radii, which gives points that are strong and also have some room around them.</p>
+
+  <p>Comparing every corner with every other one is slow. After sorting by strength, the corners that count as clearly stronger than corner <span class="math">i</span> are just a prefix of the sorted list, so each block of 1,024 corners only gets compared against the ones before it.</p>
+
+  <details class="code">
+    <summary>code: detect_features, anms</summary>
+<pre><code>def detect_features(im, n_keep=500, rel_thresh=0.005, max_candidates=20000, c_robust=0.9,
+                    select="anms", blur_sigma=None, seed=0):
+    gray = color.rgb2gray(im)
+    pts, S = harris_candidates(gray)
+    all_pts = pts
+    keep = S &gt;= rel_thresh * S.max()
+    pts, S = pts[keep], S[keep]
+    if len(S) &gt; max_candidates:     # safety cap for pathological images
+        top = np.argsort(-S)[:max_candidates]
+        pts, S = pts[top], S[top]
+
+    if select == "anms":
+        order, _ = anms(pts, S, n_keep, c_robust)
+    elif select == "strength":
+        order = np.argsort(-S, kind="stable")[:n_keep]
+    elif select == "random":
+        order = np.random.default_rng(seed).permutation(len(S))[:n_keep]
+    else:
+        raise ValueError(select)
+
+    desc = extract_descriptors(gray, pts[order], blur_sigma=blur_sigma)
+    return Features(pts[order], desc, S[order], all_pts, gray)
+
+
+def anms(pts, strength, n_keep=500, c_robust=0.9, chunk=1024):
+    order = np.argsort(-strength, kind="stable")
+    p, st = pts[order], strength[order]
+    n_stronger = np.searchsorted(-c_robust * st, -st, side="left")    # size of prefix per point
+    r2 = np.full(len(p), np.inf)
+    for s in range(0, len(p), chunk):
+        idx = np.arange(s, min(s + chunk, len(p)))
+        k = n_stronger[idx].max()
+        if k == 0:
+            continue
+        d2 = dist2(p[idx], p[:k])
+        d2[np.arange(k)[None, :] &gt;= n_stronger[idx][:, None]] = np.inf
+        r2[idx] = d2.min(axis=1)
+    radii = np.empty(len(p))
+    radii[order] = np.sqrt(np.maximum(r2, 0))
+    return np.argsort(-radii, kind="stable")[:n_keep], radii</code></pre>
+  </details>
+</div>
+
+<div class="reveal">
+  <figure class="evidence-figure"><div class="image-frame"><a href="media/B1_mosaic_1_harris_anms.jpg"><img src="media/B1_mosaic_1_harris_anms.jpg" alt="Mosaic 1, image 0: all Harris corners, the 500 strongest, and 500 after ANMS" loading="lazy"></a></div><figcaption>Mosaic 1 (image 0): all Harris corners &rarr; 500 strongest &rarr; 500 after ANMS</figcaption></figure>
+  <figure class="evidence-figure"><div class="image-frame"><a href="media/B1_mosaic_2_harris_anms.jpg"><img src="media/B1_mosaic_2_harris_anms.jpg" alt="Mosaic 2, centre image: all Harris corners, the 500 strongest, and 500 after ANMS" loading="lazy"></a></div><figcaption>Mosaic 2 (centre image)</figcaption></figure>
+  <figure class="evidence-figure"><div class="image-frame"><a href="media/B1_mosaic_3_harris_anms.jpg"><img src="media/B1_mosaic_3_harris_anms.jpg" alt="Mosaic 3, centre image: all Harris corners, the 500 strongest, and 500 after ANMS" loading="lazy"></a></div><figcaption>Mosaic 3 (centre image)</figcaption></figure>
+</div>
+
+<div class="reveal from-right">
+  <p>Without ANMS, the strongest 500 pile up on a few high-contrast spots: the tree on the left in mosaic 1, and the window frames and arches in mosaics 2 and 3. After ANMS, the same 500 points also land on the stairs, the plain wall and the paving. However, paving and stair bricks are repetitive, so those points could be easy to confuse with their neighbours.</p>
+</div>
+
+<!-- ======================================================================= -->
+<h2 id="descriptors"><span class="num">B.2</span> Feature descriptors</h2>
+
+<div class="reveal from-right">
+  <p>Each corner is described by the 40&times;40 patch of grayscale around it, but not by all 1,600 pixels. I blur the image with a Gaussian (&sigma; = 2.5), then sample the blurred image on an 8&times;8 grid with 5 px spacing, so each of the 64 samples roughly summarises its own 5&times;5 cell. Sampling from the blurred image is what makes the descriptor big and smooth, so a match survives a corner being a pixel or two off. Finally I bias/gain normalise, so a brighter or flatter exposure of the same spot gives the same 64 numbers.</p>
+
+  <div class="formula">
+    <div class="math"><span class="hat">d</span> = (d &minus; &mu;<sub>d</sub>) / &sigma;<sub>d</sub></div>
+  </div>
+
+  <p>The patches are axis-aligned, with no rotation invariance. My photos are all upright and panned sideways, so features shouldn't rotate much between neighbours.</p>
+
+  <details class="code">
+    <summary>code: extract_descriptors</summary>
+<pre><code>def extract_descriptors(gray, pts, window=40, size=8, blur_sigma=None):
+    spacing = window / size
+    blur_sigma = spacing / 2 if blur_sigma is None else blur_sigma   # each sample ~ its 5x5 cell
+    blurred = ndimage.gaussian_filter(gray, blur_sigma)
+    offs = (np.arange(size) - (size - 1) / 2.0) * spacing            # centred on the point
+    oy, ox = np.meshgrid(offs, offs, indexing="ij")
+    cy = pts[:, 1, None, None] + oy[None]
+    cx = pts[:, 0, None, None] + ox[None]
+    patches = ndimage.map_coordinates(blurred, np.stack([cy, cx]), order=1, mode="nearest")
+    d = patches.reshape(len(pts), -1)
+    return (d - d.mean(axis=1, keepdims=True)) / (d.std(axis=1, keepdims=True) + 1e-8)</code></pre>
+  </details>
+
+  <figure class="evidence-figure"><div class="image-frame"><a href="media/B2_descriptors.jpg"><img src="media/B2_descriptors.jpg" alt="Six random features from mosaic 1 image 0: the 40 by 40 window, the 8 by 8 normalised descriptor, and its 64 values" loading="lazy"></a></div><figcaption>Six random features from mosaic 1 (image 0). Top: the 40&times;40 window. Middle: the 8&times;8 descriptor. Bottom: its 64 values.</figcaption></figure>
+
+  <p>Features 1, 5 and 6 (a wall corner, and the balcony railing) turn into clean light/dark splits. Feature 3 is the &ldquo;N&rdquo; in the building's sign. The window shows the letter clearly, but the descriptor is a smooth ramp with no trace of it. That's what the blur is for.</p>
+</div>
+
+<!-- ======================================================================= -->
+<h2 id="matching"><span class="num">B.3</span> Matching with the ratio test</h2>
+
+<div class="reveal">
+  <p>For every descriptor in image 1, I find its nearest and second-nearest descriptor in image 2 (squared distances from <code>dist2</code> in <code>harris.py</code>, then square-rooted). I only keep the match if the nearest one is a lot closer than the runner-up, which is Lowe's ratio test:</p>
+
+  <div class="formula">
+    <div class="math">e<sub>1-NN</sub> / e<sub>2-NN</sub> &lt; 0.6</div>
+  </div>
+
+  <details class="code">
+    <summary>code: nearest_neighbours, match_features</summary>
+<pre><code>def nearest_neighbours(d1, d2):
+    D = np.maximum(dist2(d1, d2), 0)
+    two = np.argsort(D, axis=1)[:, :2]
+    rows = np.arange(len(d1))
+    d_1, d_2 = np.sqrt(D[rows, two[:, 0]]), np.sqrt(D[rows, two[:, 1]])
+    mutual = D.argmin(axis=0)[two[:, 0]] == rows
+    return two[:, 0], d_1 / (d_2 + 1e-12), mutual
+
+
+def match_features(d1, d2, ratio_thresh=0.6, cross_check=False):
+    nn, ratio, mutual = nearest_neighbours(d1, d2)
+    keep = (ratio &lt; ratio_thresh) &amp; (mutual if cross_check else True)
+    idx1 = np.flatnonzero(keep)
+    return idx1, nn[idx1], ratio[idx1]</code></pre>
+  </details>
+
+  <h3>Choosing the threshold</h3>
+  <p>To pick 0.6, I ran RANSAC first (next section) and used its <span class="math">H</span> to label every feature in image 0: is its nearest neighbour in image 1 where <span class="math">H</span> says it should be? Of the 500 features, 184 are and 316 aren't.</p>
+</div>
+
+<div class="reveal from-right">
+  <figure class="evidence-figure narrow"><div class="image-frame"><a href="media/B3_ratio_hist.jpg"><img src="media/B3_ratio_hist.jpg" alt="Histogram of 1-NN over 2-NN distance ratios, split into features consistent and inconsistent with the final homography" loading="lazy"></a></div><figcaption>Ratio for each feature in mosaic 1, image 0, split by whether its nearest neighbour agrees with the final <span class="math">H</span></figcaption></figure>
+
+  <p>The consistent features (teal) mostly have ratios between 0.3 and 0.6. The inconsistent ones (red) pile up against 1, because for them there's nothing good to find. That's a lot of red, but image 0 only overlaps image 1 partly, so I'd expect many of its features to have no partner. The threshold of 0.6 sits about where the two piles stop overlapping much. It isn't a clean cut: a thin tail of consistent features runs past 0.6 and I lose those, and a few inconsistent ones sneak in below it.</p>
+
+  <figure class="evidence-figure medium"><div class="image-frame"><a href="media/B3_matches.jpg"><img src="media/B3_matches.jpg" alt="Mosaic 1, images 0 and 1 side by side with 119 ratio-test matches drawn as lines" loading="lazy"></a></div><figcaption>Mosaic 1, image 0 &harr; image 1: 119 matches pass the ratio test</figcaption></figure>
+
+  <p>Most lines run roughly parallel. A few cross the image at steep angles, mostly in the upper left, and those are wrong. They passed the ratio test because their descriptors happen to look alike, so these matches can't go straight into least squares.</p>
+</div>
+
+<!-- ======================================================================= -->
+<h2 id="ransac"><span class="num">B.4</span> RANSAC and automatic mosaics</h2>
+
+<div class="reveal">
+  <p>Least squares over all 119 matches would let the wrong ones drag <span class="math">H</span> around. 4-point RANSAC, written from scratch, avoids that:</p>
+
+  <ol>
+    <li>Pick 4 matches at random. If any three of them are nearly collinear in either image, skip the sample, since four points like that don't pin down a homography.</li>
+    <li>Solve for <span class="math">H</span> exactly from those 4 with Part A's <code>computeH</code>.</li>
+    <li>Count the matches whose projected position <span class="math">H p<sub>1</sub></span> lands within &epsilon; = 3 px of <span class="math">p<sub>2</sub></span>. Those are the inliers.</li>
+    <li>Repeat 5000 times and keep the largest inlier set (ties go to the smaller total error). Then refit <span class="math">H</span> by least squares on all of its inliers, recompute the inliers once with the refit <span class="math">H</span>, and refit again.</li>
+  </ol>
+
+  <p>One change to <code>computeH</code>: it now takes <code>normalize=True</code>, which shifts the points so their centroid is the origin, scales them so the average distance from it is &radic;2, solves, then undoes that.</p>
+
+  <details class="code">
+    <summary>code: computeH with normalisation, ransac_homography, auto_homographies</summary>
+<pre><code>def _normalizer(p):
+    c = p.mean(axis=0)
+    s = np.sqrt(2) / (np.linalg.norm(p - c, axis=1).mean() + 1e-12)
+    return np.array([[s, 0, -s * c[0]], [0, s, -s * c[1]], [0, 0, 1.0]])
+
+
+def computeH(im1_pts, im2_pts, normalize=False):
+    p = np.asarray(im1_pts, dtype=np.float64)
+    q = np.asarray(im2_pts, dtype=np.float64)
+    if len(p) &lt; 4:
+        raise ValueError("need at least 4 correspondences")
+    if normalize:
+        T1, T2 = _normalizer(p), _normalizer(q)
+        p, q = apply_homography(T1, p), apply_homography(T2, q)
+    h, *_ = np.linalg.lstsq(*build_system(p, q), rcond=None)
+    H = np.append(h, 1.0).reshape(3, 3)
+    if normalize:
+        H = np.linalg.inv(T2) @ H @ T1
+        H = H / H[2, 2]
+    return H
+
+
+def _degenerate(p, min_area2=1.0):
+    for a, b, c in ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)):
+        v1, v2 = p[b] - p[a], p[c] - p[a]
+        if abs(v1[0] * v2[1] - v1[1] * v2[0]) &lt; min_area2:
+            return True
+    return False
+
+
+def ransac_homography(p1, p2, n_iter=5000, eps=3.0, seed=0):
+    rng = np.random.default_rng(seed)
+    n = len(p1)
+    best, best_err = np.zeros(n, bool), np.inf
+    for _ in range(n_iter if n &gt;= 4 else 0):
+        idx = rng.choice(n, 4, replace=False)
+        if _degenerate(p1[idx]) or _degenerate(p2[idx]):
+            continue
+        H = M.computeH(p1[idx], p2[idx], normalize=True)
+        if not np.all(np.isfinite(H)):
+            continue
+        err = M.reprojection_error(H, p1, p2)
+        inl = err &lt; eps
+        if inl.sum() &gt; best.sum() or (inl.sum() == best.sum() and inl.any() and err[inl].sum() &lt; best_err):
+            best, best_err = inl, err[inl].sum()
+    if best.sum() &lt; 4:
+        return None, best
+    H = M.computeH(p1[best], p2[best], normalize=True)             # least-squares refit
+    inliers = M.reprojection_error(H, p1, p2) &lt; eps
+    if inliers.sum() &gt;= 4:
+        H = M.computeH(p1[inliers], p2[inliers], normalize=True)
+    return H, inliers
+
+
+def auto_homographies(images, ref=None, feats=None, n_keep=500, ratio_thresh=0.6, eps=3.0,
+                      n_iter=5000, seed=0):
+    ref = len(images) // 2 if ref is None else ref
+    feats = feats or [detect_features(im, n_keep=n_keep) for im in images]
+    pairs = [match_pair(feats[i], feats[i + 1], ratio_thresh, False, n_iter, eps, seed)
+             for i in range(len(images) - 1)]
+    for i, p in enumerate(pairs):
+        if p["H"] is None or p["inliers"].sum() &lt; 8:
+            raise RuntimeError(f"pair {i}-&gt;{i + 1}: only {p['inliers'].sum()} inliers; "
+                               "loosen ratio_thresh or check the overlap")
+    Hs = M.chain_homographies(len(images), ref, [(i, i + 1, p["H"]) for i, p in enumerate(pairs)])
+    return Hs, dict(feats=feats, pairs=pairs, ref=ref)</code></pre>
+  </details>
+
+  <p><code>auto_homographies</code> does this for each neighbouring pair, then chains the results into the middle image's frame with Part A's <code>chain_homographies</code>.</p>
+</div>
+
+<div class="reveal from-right">
+  <figure class="evidence-figure medium"><div class="image-frame"><a href="media/B4_ransac_inliers.jpg"><img src="media/B4_ransac_inliers.jpg" alt="The same 119 matches as before, coloured green for the 103 RANSAC inliers and red for the 16 outliers" loading="lazy"></a></div><figcaption>Same pair as above: 103 inliers (green), 16 outliers (red)</figcaption></figure>
+
+  <p>RANSAC keeps 103 of the 119 matches. The red ones include the steep lines in the upper left that I flagged by eye. This is the <span class="math">H</span> it recovers for image 0 &rarr; image 1:</p>
+
+  <div class="formula">
+    <div class="eq-row">
+      <span class="op">H =</span>
+      <div class="matrix" style="--cols:3"><span>1.38594</span><span>&minus;0.14189</span><span>&minus;271.61142</span><span>0.40540</span><span>1.19773</span><span>&minus;147.59901</span><span>0.00057</span><span>&minus;0.00007</span><span>1</span></div>
+    </div>
+  </div>
+
+  <p>The numbers aren't the same as the hand-clicked <span class="math">H</span> from Part A for this pair, but on my clicked points the two differ by about 3 px on average.</p>
+
+  <h3>All six pairs</h3>
+  <div class="pair mid">
+    <figure><a href="media/mosaic_1_pair0_ransac.jpg"><img src="media/mosaic_1_pair0_ransac.jpg" alt="Mosaic 1, images 0 and 1: RANSAC inliers and outliers" loading="lazy"></a><figcaption>mosaic 1, 0 &harr; 1</figcaption></figure>
+    <figure><a href="media/mosaic_1_pair1_ransac.jpg"><img src="media/mosaic_1_pair1_ransac.jpg" alt="Mosaic 1, images 1 and 2: RANSAC inliers and outliers" loading="lazy"></a><figcaption>mosaic 1, 1 &harr; 2</figcaption></figure>
+    <figure><a href="media/mosaic_2_pair0_ransac.jpg"><img src="media/mosaic_2_pair0_ransac.jpg" alt="Mosaic 2, images 0 and 1: RANSAC inliers and outliers" loading="lazy"></a><figcaption>mosaic 2, 0 &harr; 1</figcaption></figure>
+    <figure><a href="media/mosaic_2_pair1_ransac.jpg"><img src="media/mosaic_2_pair1_ransac.jpg" alt="Mosaic 2, images 1 and 2: RANSAC inliers and outliers" loading="lazy"></a><figcaption>mosaic 2, 1 &harr; 2</figcaption></figure>
+    <figure><a href="media/mosaic_3_pair0_ransac.jpg"><img src="media/mosaic_3_pair0_ransac.jpg" alt="Mosaic 3, images 0 and 1: RANSAC inliers and outliers" loading="lazy"></a><figcaption>mosaic 3, 0 &harr; 1</figcaption></figure>
+    <figure><a href="media/mosaic_3_pair1_ransac.jpg"><img src="media/mosaic_3_pair1_ransac.jpg" alt="Mosaic 3, images 1 and 2: RANSAC inliers and outliers" loading="lazy"></a><figcaption>mosaic 3, 1 &harr; 2</figcaption></figure>
+  </div>
+
+  <div class="table-scroll">
+    <table class="ledger">
+      <caption>Matches and accuracy per pair. Errors are in pixels, at 750 &times; 1000.</caption>
+      <thead><tr><th>mosaic</th><th>pair</th><th class="n">matches</th><th class="n">inliers</th><th class="n">inlier error</th><th class="n">clicks, manual H</th><th class="n">clicks, auto H</th></tr></thead>
+      <tbody>
+        <tr><td class="name">mosaic 1</td><td>0 &harr; 1</td><td class="n">119</td><td class="n">103</td><td class="n">1.27</td><td class="n">1.50</td><td class="n">3.24</td></tr>
+        <tr><td class="name">mosaic 1</td><td>1 &harr; 2</td><td class="n">73</td><td class="n">57</td><td class="n">1.25</td><td class="n">2.14</td><td class="n">3.81</td></tr>
+        <tr><td class="name">mosaic 2</td><td>0 &harr; 1</td><td class="n">124</td><td class="n">108</td><td class="n">1.30</td><td class="n">1.70</td><td class="n">3.08</td></tr>
+        <tr><td class="name">mosaic 2</td><td>1 &harr; 2</td><td class="n">123</td><td class="n">116</td><td class="n">1.28</td><td class="n">1.23</td><td class="n">2.00</td></tr>
+        <tr><td class="name">mosaic 3</td><td>0 &harr; 1</td><td class="n">175</td><td class="n">157</td><td class="n">1.53</td><td class="n">1.63</td><td class="n">3.13</td></tr>
+        <tr class="flag"><td class="name">mosaic 3</td><td>1 &harr; 2</td><td class="n">117</td><td class="n">97</td><td class="n">1.35</td><td class="n">2.63</td><td class="n">5.60</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Between 78% and 94% of the ratio-test matches survive RANSAC, and the inliers fit the recovered <span class="math">H</span> to 1.25&ndash;1.53 px on average. Each automatic <span class="math">H</span> is fitted to 57&ndash;157 points, compared with the 8 clicks I used in Part A (6 for one pair).</p>
+
+  <p>The last two columns score each <span class="math">H</span> on my Part A clicks. The manual <span class="math">H</span> wins every row, but it was fitted to exactly those clicks, so it would. The automatic <span class="math">H</span> is worse on this measure (2.0&ndash;5.6 px against 1.2&ndash;2.6), but in the mosaics below, I can't tell the two apart by eye. The worst row is the same in both columns: mosaic 3.</p>
+</div>
+
+<div class="reveal">
+  <h3>Manual vs. automatic</h3>
+  <p>Each figure puts the Part A mosaic (left) next to the Part B one (right). Both use the same two-band blend on the same canvas, and the red box is zoomed underneath. Below each comparison is the automatic mosaic on its own.</p>
+</div>
+
+<div class="reveal from-right">
+  <h3>Mosaic 1</h3>
+  <figure class="evidence-figure"><div class="image-frame"><a href="media/mosaic_1_manual_vs_auto.png"><img src="media/mosaic_1_manual_vs_auto.png" alt="Mosaic 1 stitched with manual and automatic homographies, with the glass entrance zoomed" loading="lazy"></a></div><figcaption>Mosaic 1: manual (Part A) vs. automatic (Part B)</figcaption></figure>
+  <figure class="evidence-figure medium"><div class="image-frame"><a href="media/mosaic_1_auto.png"><img src="media/mosaic_1_auto.png" alt="Automatically stitched mosaic of the building front and stairs" loading="lazy"></a></div><figcaption>Mosaic 1, automatic</figcaption></figure>
+</div>
+
+<div class="reveal">
+  <h3>Mosaic 2</h3>
+  <figure class="evidence-figure"><div class="image-frame"><a href="media/mosaic_2_manual_vs_auto.png"><img src="media/mosaic_2_manual_vs_auto.png" alt="Mosaic 2 stitched with manual and automatic homographies, with the arches and lamps zoomed" loading="lazy"></a></div><figcaption>Mosaic 2: manual (Part A) vs. automatic (Part B)</figcaption></figure>
+  <figure class="evidence-figure medium"><div class="image-frame"><a href="media/mosaic_2_auto.png"><img src="media/mosaic_2_auto.png" alt="Automatically stitched mosaic of the courtyard with the railing in the foreground" loading="lazy"></a></div><figcaption>Mosaic 2, automatic</figcaption></figure>
+</div>
+
+<div class="reveal from-right">
+  <h3>Mosaic 3</h3>
+  <figure class="evidence-figure"><div class="image-frame"><a href="media/mosaic_3_manual_vs_auto.png"><img src="media/mosaic_3_manual_vs_auto.png" alt="Mosaic 3 stitched with manual and automatic homographies, with the double doors zoomed" loading="lazy"></a></div><figcaption>Mosaic 3: manual (Part A) vs. automatic (Part B)</figcaption></figure>
+  <figure class="evidence-figure medium"><div class="image-frame"><a href="media/mosaic_3_auto.png"><img src="media/mosaic_3_auto.png" alt="Automatically stitched mosaic of the arched courtyard" loading="lazy"></a></div><figcaption>Mosaic 3, automatic</figcaption></figure>
+</div>
+
+<div class="reveal">
+  <p>In all three zoomed crops (the glass entrance and the &ldquo;2299&rdquo; sign, the lamps and arches, the double doors) I can't see a difference between manual and automatic. What does differ is the outline of the canvas, most visibly on the right edge of mosaic 1. The far corners of a warped image are the furthest from any point either <span class="math">H</span> was fitted to, so a small difference in <span class="math">H</span> gets magnified there.</p>
+  <p>The things Part A couldn't fix are still wrong, like the foreground railing in mosaic 2 and the glass reflections in mosaic 1. A better matcher doesn't help when the model can't describe the problem, because a homography only handles one plane.</p>
+</div>
+
+<!-- ======================================================================= -->
 <h2 id="learned">What I learned</h2>
 
 <div class="reveal from-right">
   <p>The biggest surprise was how much of this project came down to the photos, not the code. Once the solve and the warps worked, the rectifications came out clean on the first try. The mosaics were different. Every misalignment I saw (the glass door reflections, the railing, the ground close to the camera) was something that doesn't sit on the same plane as the wall. A homography can only line up one plane, or a scene seen from a single spot.</p>
+
+  <p>Part B changed how I read Part A's numbers. In Part A, I treated the reprojection error on my clicked points as a measure of how good each <span class="math">H</span> was. Now, the automatic <span class="math">H</span> disagrees with my clicks by 2 to 5.6 px and the mosaics still look the same, so that number was mostly telling me how well <span class="math">H</span> fit my own clicks, which have error of their own.</p>
 </div>
 
 <footer>
